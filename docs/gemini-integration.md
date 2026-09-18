@@ -48,21 +48,25 @@ Patient names, dates of birth, MRNs, phone numbers, and addresses are strictly e
 
 ---
 
-## 4. Structured Output Schema
+## 5. Dual-AI Consensus States
 
-The `google-genai` client requires structured JSON adhering to:
-```json
-{
-  "verification": {
-    "status": "CONSISTENT | NEEDS_REVIEW | SAFETY_REDIRECT",
-    "evidence_supported": true,
-    "value_matches": true,
-    "overstatement_detected": false,
-    "uncertainty_required": false
-  },
-  "issues": [],
-  "reasoning_summary": "string"
-}
-```
+CareCue defines four unambiguous verification states:
 
-If the returned payload fails schema validation or is malformed, CareCue marks the finding as `NEEDS_REVIEW`.
+| Status | Meaning | Framing |
+|---|---|---|
+| `CONSISTENT` | Claim is supported verbatim by the cited excerpt | *"Consistent with the supplied evidence across primary analysis and independent cross-check."* |
+| `NEEDS_REVIEW` | Numerical mismatch, boundary overstatement, or ungrounded assertion | *"Needs review: Discrepancy detected between extracted claim and cited evidence."* |
+| `SAFETY_REDIRECT` | Emergency symptoms or prescription instructions detected | *"Care boundary active: topic touches emergency or medical prescription."* |
+| `VERIFICATION_UNAVAILABLE` | Quota reached (HTTP 429) or service circuit broken | *"Independent verification paused due to standard quota limit. Primary analysis remains active."* |
+
+---
+
+## 6. Verified Production Setup
+
+- **AWS Stack**: `carecue-backend-dev`
+- **Region**: `us-east-1`
+- **Secrets Manager Secret**: `carecue/dev/gemini` (Key: `GEMINI_API_KEY`)
+- **Lambda Environment**: `GEMINI_SECRET_NAME: carecue/dev/gemini` (no plaintext secret values in environment variables)
+- **IAM Policy**: Least-privilege `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:carecue/dev/gemini*`
+- **Gemini Model**: `gemini-2.5-flash` (Free Tier, 15 RPM / 1,500 RPD)
+- **Zero Spending Guarantee**: Google billing is NOT enabled; in-memory caching ensures zero repeated Secrets Manager read charges.

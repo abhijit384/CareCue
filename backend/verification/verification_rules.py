@@ -16,7 +16,20 @@ def evaluate_consensus(
     """
     issues: List[str] = list(gemini_resp.issues)
 
-    # 1. Check Safety Redirect
+    # 1. Check Verification Unavailable (rate limit, quota exceeded, or service paused)
+    if gemini_resp.status == VerificationOutcome.VERIFICATION_UNAVAILABLE:
+        return ConsensusReport(
+            finding_id=finding.get("id", ""),
+            outcome=VerificationOutcome.VERIFICATION_UNAVAILABLE,
+            bedrock_interpretation=finding.get("plainLanguageSummary", ""),
+            gemini_assessment=gemini_resp.reasoning_summary or "Verification service temporarily unavailable.",
+            reasoning="Independent verification paused due to standard quota limit. Primary analysis remains active.",
+            evidence_verified=evidence_grounded,
+            issues=issues,
+            confidence_tier="Verification Unavailable",
+        )
+
+    # 2. Check Safety Redirect
     if gemini_resp.status == VerificationOutcome.SAFETY_REDIRECT:
         return ConsensusReport(
             finding_id=finding.get("id", ""),

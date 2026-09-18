@@ -33,6 +33,7 @@ class DualAIVerificationEngine:
         consistent_count = 0
         review_count = 0
         redirect_count = 0
+        unavailable_count = 0
 
         for finding in findings:
             # 1. Grounding check
@@ -61,6 +62,9 @@ class DualAIVerificationEngine:
             elif consensus.outcome == VerificationOutcome.SAFETY_REDIRECT:
                 redirect_count += 1
                 ui_status = "safety_redirect"
+            elif consensus.outcome == VerificationOutcome.VERIFICATION_UNAVAILABLE:
+                unavailable_count += 1
+                ui_status = "verification_unavailable"
             else:
                 review_count += 1
                 ui_status = "needs_review"
@@ -83,6 +87,7 @@ class DualAIVerificationEngine:
             "consistent": consistent_count,
             "needsReview": review_count,
             "safetyRedirects": redirect_count,
+            "verificationUnavailable": unavailable_count,
             "verificationEngine": "Amazon Bedrock + Google Gemini (Free Tier)",
             "consensusFraming": "Consistent with supplied evidence (non-diagnostic)",
         }

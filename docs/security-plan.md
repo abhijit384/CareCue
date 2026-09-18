@@ -52,10 +52,10 @@ CareCue handles sensitive health-related information. Our security posture is:
 ### 3.1 Gemini API Key
 
 ```
-Storage:       AWS Secrets Manager → carecue/gemini-api-key
-Access:        Lambda execution role only (analyze-handler, guidance-handler)
-Caching:       Cached in Lambda memory on cold start (~5 min TTL)
-Rotation:      Manual during hackathon (Secrets Manager supports auto-rotation)
+Storage:       AWS Secrets Manager → carecue/dev/gemini (Key: GEMINI_API_KEY)
+Access:        Lambda execution role only (ProcessFunction, VerificationFunction)
+Policy:        Strict least-privilege (arn:aws:secretsmanager:...:secret:carecue/dev/gemini*)
+Caching:       In-memory process cache (_CACHED_API_KEY) across warm invocations ($0 cost)
 Exposure:      NEVER in:
                - Frontend code
                - Environment variables visible to client

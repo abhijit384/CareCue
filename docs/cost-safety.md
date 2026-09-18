@@ -15,7 +15,7 @@ CareCue is engineered to operate on AWS with a **$0 Idle Cost Baseline**. When n
 | **Document Storage** | Amazon S3 | Ephemeral Storage | **$0.00** | $0.023 per GB/mo | 7-day automatic lifecycle expiration rule |
 | **Foundation Models** | Amazon Bedrock | On-Demand Tokens | **$0.00** | Claude 3 Haiku / Claude 3.5 Sonnet | Capped at 1,200 max tokens per request; temperature 0.1 |
 | **Independent Verification** | Google Gemini (GenAI SDK) | Free-Tier API | **$0.00** | 15 RPM / 1,500 RPD | Capped at 5 verification requests per session; circuit breaker on 429 |
-| **Secrets Manager** | AWS Secrets Manager | Per Secret Month | ~$0.40/mo | 1 secret (`carecue/gemini-api-key`) | In-memory key caching avoids repeated API calls |
+| **Secrets Manager** | AWS Secrets Manager | Per Secret Month | ~$0.40/mo | 1 secret (`carecue/dev/gemini`) | In-memory key caching avoids repeated API calls |
 
 ---
 

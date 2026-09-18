@@ -33,9 +33,11 @@ sam build
 sam deploy --guided
 
 # Wizard prompts:
-# Stack Name [carecue-backend]: carecue-backend
+# Stack Name [carecue-backend-dev]: carecue-backend-dev
 # AWS Region [us-east-1]: us-east-1
-# Parameter BedrockModelId [anthropic.claude-3-haiku-20240307-v1:0]: <Enter>
+# Parameter Environment [dev]: dev
+# Parameter BedrockModelId [anthropic.claude-3-5-sonnet-20241022-v2:0]: <Enter>
+# Parameter GeminiSecretName [carecue/dev/gemini]: carecue/dev/gemini
 # Confirm changes before deploy [Y/n]: n
 # Allow SAM CLI IAM role creation [Y/n]: Y
 # Disable rollback [y/N]: N
@@ -44,9 +46,10 @@ sam deploy --guided
 
 ### Outputs
 Once deployed, SAM outputs:
-- `HttpApiUrl`: The public API Gateway endpoint, e.g., `https://abc123xyz.execute-api.us-east-1.amazonaws.com`.
-- `DocumentsBucketName`: Private S3 bucket name.
-- `SessionsTableName`: DynamoDB table name.
+- `HttpApiUrl`: The public API Gateway endpoint, e.g., `https://<api-id>.execute-api.us-east-1.amazonaws.com/dev`.
+- `DocumentsBucketName`: Private S3 bucket name (`carecue-documents-dev-*`).
+- `SessionsTableName`: DynamoDB table name (`carecue-sessions-dev`).
+- `GeminiSecretConnected`: Connected Secrets Manager secret (`carecue/dev/gemini`).
 
 ---
 
