@@ -1,0 +1,271 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════
+   CARECUE DESIGN TOKENS
+   "Clinical Calm × AI Precision"
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ─── Light Mode Tokens (Default) ─── */
+  --bg-primary: hsl(40, 20%, 98%);
+  --bg-secondary: hsl(40, 15%, 95%);
+  --bg-tertiary: hsl(40, 12%, 91%);
+  --bg-surface: hsl(0, 0%, 100%);
+  --bg-elevated: hsl(0, 0%, 100%);
+
+  --text-primary: hsl(220, 24%, 16%);
+  --text-secondary: hsl(220, 14%, 40%);
+  --text-tertiary: hsl(220, 9%, 56%);
+  --text-inverse: hsl(0, 0%, 100%);
+
+  --accent-teal: hsl(172, 48%, 40%);
+  --accent-teal-light: hsl(172, 40%, 94%);
+  --accent-teal-dark: hsl(172, 52%, 28%);
+
+  --ai-lavender: hsl(262, 38%, 56%);
+  --ai-lavender-light: hsl(262, 35%, 95%);
+  --ai-lavender-dark: hsl(262, 44%, 42%);
+
+  --status-consistent: hsl(172, 48%, 40%);
+  --status-consistent-bg: hsl(172, 40%, 94%);
+  --status-review: hsl(38, 88%, 48%);
+  --status-review-bg: hsl(38, 80%, 95%);
+  --status-safety: hsl(0, 60%, 52%);
+  --status-safety-bg: hsl(0, 50%, 96%);
+
+  --border-default: hsl(220, 10%, 88%);
+  --border-subtle: hsl(220, 8%, 93%);
+  --border-strong: hsl(220, 14%, 78%);
+  --border-focus: hsl(172, 48%, 40%);
+
+  --shadow-color: 220 12% 65%;
+  --shadow-sm: 0 1px 2px hsla(var(--shadow-color), 0.08);
+  --shadow-md: 0 3px 10px hsla(var(--shadow-color), 0.10), 0 1px 3px hsla(var(--shadow-color), 0.05);
+  --shadow-lg: 0 6px 20px hsla(var(--shadow-color), 0.12), 0 2px 6px hsla(var(--shadow-color), 0.06);
+  --shadow-xl: 0 12px 36px hsla(var(--shadow-color), 0.15), 0 4px 12px hsla(var(--shadow-color), 0.08);
+
+  --depth-card-glow: 0 0 0 1px hsla(172, 48%, 40%, 0.1), 0 12px 28px -6px hsla(220, 20%, 30%, 0.08);
+}
+
+.dark, [data-theme="dark"] {
+  /* ─── Dark Mode Tokens (Deep Charcoal / Navy) ─── */
+  --bg-primary: hsl(222, 26%, 9%);
+  --bg-secondary: hsl(222, 22%, 13%);
+  --bg-tertiary: hsl(222, 18%, 18%);
+  --bg-surface: hsl(222, 24%, 12%);
+  --bg-elevated: hsl(222, 20%, 15%);
+
+  --text-primary: hsl(210, 25%, 96%);
+  --text-secondary: hsl(215, 15%, 72%);
+  --text-tertiary: hsl(215, 10%, 54%);
+  --text-inverse: hsl(222, 26%, 9%);
+
+  --accent-teal: hsl(172, 50%, 50%);
+  --accent-teal-light: hsl(172, 40%, 16%);
+  --accent-teal-dark: hsl(172, 48%, 76%);
+
+  --ai-lavender: hsl(262, 50%, 70%);
+  --ai-lavender-light: hsl(262, 35%, 17%);
+  --ai-lavender-dark: hsl(262, 45%, 82%);
+
+  --status-consistent: hsl(172, 50%, 50%);
+  --status-consistent-bg: hsl(172, 40%, 16%);
+  --status-review: hsl(38, 90%, 56%);
+  --status-review-bg: hsl(38, 55%, 16%);
+  --status-safety: hsl(0, 65%, 62%);
+  --status-safety-bg: hsl(0, 50%, 16%);
+
+  --border-default: hsl(222, 16%, 22%);
+  --border-subtle: hsl(222, 14%, 16%);
+  --border-strong: hsl(222, 18%, 32%);
+  --border-focus: hsl(172, 50%, 50%);
+
+  --shadow-color: 222 35% 4%;
+  --shadow-sm: 0 1px 3px hsla(var(--shadow-color), 0.35);
+  --shadow-md: 0 4px 12px hsla(var(--shadow-color), 0.45);
+  --shadow-lg: 0 8px 24px hsla(var(--shadow-color), 0.55);
+  --shadow-xl: 0 16px 40px hsla(var(--shadow-color), 0.65);
+
+  --depth-card-glow: 0 0 0 1px hsla(172, 50%, 50%, 0.2), 0 12px 32px -6px hsla(222, 35%, 3%, 0.7);
+}
+
+@theme {
+  /* ─── Backgrounds ─── */
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-tertiary: var(--bg-tertiary);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-elevated: var(--bg-elevated);
+
+  /* ─── Typography ─── */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-inverse: var(--text-inverse);
+
+  /* ─── Brand / Accent ─── */
+  --color-accent-teal: var(--accent-teal);
+  --color-accent-teal-light: var(--accent-teal-light);
+  --color-accent-teal-dark: var(--accent-teal-dark);
+
+  /* ─── Verification (AI) ─── */
+  --color-ai-lavender: var(--ai-lavender);
+  --color-ai-lavender-light: var(--ai-lavender-light);
+  --color-ai-lavender-dark: var(--ai-lavender-dark);
+
+  /* ─── Status ─── */
+  --color-status-consistent: var(--status-consistent);
+  --color-status-consistent-bg: var(--status-consistent-bg);
+  --color-status-review: var(--status-review);
+  --color-status-review-bg: var(--status-review-bg);
+  --color-status-safety: var(--status-safety);
+  --color-status-safety-bg: var(--status-safety-bg);
+
+  /* ─── Borders ─── */
+  --color-border-default: var(--border-default);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-border-focus: var(--border-focus);
+
+  /* ─── Font Families ─── */
+  --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* ─── Radius ─── */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BASE STYLES & TYPOGRAPHY
+   ═══════════════════════════════════════════════════════════════ */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  line-height: 1.6;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ─── Distinctive Display Headings ─── */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.025em; }
+h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+h3 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.015em; }
+h4 { font-size: 1rem; font-weight: 600; }
+
+@media (min-width: 640px) {
+  h1 { font-size: 2.25rem; }
+}
+
+p { max-width: 65ch; }
+
+/* ─── Focus Ring ─── */
+*:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ─── Selection ─── */
+::selection {
+  background-color: var(--color-accent-teal-light);
+  color: var(--color-text-primary);
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
+
+/* ─── Skeleton Animation ─── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-secondary) 25%,
+    var(--color-bg-tertiary) 50%,
+    var(--color-bg-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite ease-in-out;
+  border-radius: var(--radius-sm);
+}
+
+/* ─── 3D & Depth Utilities ─── */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.perspective-1200 {
+  perspective: 1200px;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.card-depth-lift {
+  transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.25s cubic-bezier(0.2, 0, 0, 1), border-color 0.2s ease;
+}
+
+.card-depth-lift:hover {
+  transform: translateY(-3px) translateZ(8px);
+  box-shadow: var(--depth-card-glow);
+}
+
+/* ─── Micro-interaction Press States ─── */
+.btn-press-micro {
+  transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-press-micro:active {
+  transform: scale(0.975);
+}
+
+/* ─── Print Styles ─── */
+@media print {
+  body { background: white !important; color: black !important; }
+  nav, .no-print { display: none !important; }
+  .print-only { display: block !important; }
+}
+
+/* ─── Reduced Motion Support ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transform: none !important;
+  }
+}

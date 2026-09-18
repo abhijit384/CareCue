@@ -1,0 +1,41 @@
+# Dependencies & Environments
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables & Credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+client_secret*.json
+
+# AWS SAM build & config with secrets
+.aws-sam/
+samconfig.toml
+!infrastructure/samconfig.toml.example
+
+# Build Outputs
+dist/
+dist-ssr/
+build/
+*.egg-info/
+
+# Logs & Testing
+*.log
+logs/
+.pytest_cache/
+coverage/
+.coverage
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
