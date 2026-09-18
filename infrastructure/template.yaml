@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CareCue - Privacy-First Healthcare Information Companion
+  AWS Serverless Infrastructure ($0 Idle Cost Architecture)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment stage environment.
+
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-5-sonnet-20241022-v2:0
+    Description: Amazon Bedrock Foundation Model ID used for clinical document comprehension.
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.12
+    Tracing: Disabled
+    Environment:
+      Variables:
+        ENV: !Ref Environment
+        SESSIONS_TABLE_NAME: !Ref CareCueSessionsTable
+        DOCUMENTS_BUCKET_NAME: !Ref CareCueDocumentsBucket
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+        AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
+
+Resources:
+  ##############################################################################
+  # 1. S3 Storage - Ephemeral Documents ($0 Idle Cost + 7-Day Auto-Expiration)
+  ##############################################################################
+  CareCueDocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "carecue-documents-${AWS::AccountId}-${Environment}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireUserDocumentsAfter7Days
+            Status: Enabled
+            ExpirationInDays: 7
+            NoncurrentVersionExpirationInDays: 1
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+            AllowedOrigins:
+              - '*'
+            MaxAge: 3600
+
+  ##############################################################################
+  # 2. DynamoDB Storage - Sessions & Metadata (PAY_PER_REQUEST, $0 Idle Cost)
+  ##############################################################################
+  CareCueSessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "carecue-sessions-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sessionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sessionId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  ##############################################################################
+  # 3. HTTP API Gateway (Low Cost, High Performance)
+  ##############################################################################
+  CareCueHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Environment
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Session-Id
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        MaxAge: 600
+
+  ##############################################################################
+  # 4. Lambda Functions
+  ##############################################################################
+
+  # Session Manager (CRUD sessions)
+  SessionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: backend.handlers.session_handler.lambda_handler
+      MemorySize: 256
+      Timeout: 10
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CareCueSessionsTable
+      Events:
+        CreateSession:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /sessions
+            Method: POST
+        ListSessions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /sessions
+            Method: GET
+        GetSession:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /sessions/{sessionId}
+            Method: GET
+        DeleteSession:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /sessions/{sessionId}
+            Method: DELETE
+
+  # S3 Pre-signed Upload URL Generator
+  UploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: backend.handlers.upload_handler.lambda_handler
+      MemorySize: 256
+      Timeout: 10
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref CareCueDocumentsBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CareCueSessionsTable
+      Events:
+        GetUploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /documents/upload-url
+            Method: POST
+
+  # Document Process & Bedrock Analysis
+  ProcessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: backend.handlers.process_handler.lambda_handler
+      MemorySize: 1024
+      Timeout: 60
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref CareCueDocumentsBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CareCueSessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:aws:bedrock:*::foundation-model/${BedrockModelId}"
+                - "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+                - "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:carecue/gemini-api-key*"
+      Events:
+        StartAnalysis:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /analysis
+            Method: POST
+        GetAnalysis:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /analysis/{sessionId}
+            Method: GET
+
+  # Dual-AI Consensus Verification (Bedrock + Gemini Cross-Check)
+  VerificationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: backend.handlers.verification_handler.lambda_handler
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CareCueSessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:carecue/gemini-api-key*"
+      Events:
+        RunVerification:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /verification
+            Method: POST
+
+  # Doctor Brief Compiler
+  BriefFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: backend.handlers.brief_handler.lambda_handler
+      MemorySize: 512
+      Timeout: 20
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CareCueSessionsTable
+      Events:
+        CompileBrief:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /doctor-brief
+            Method: POST
+        GetBrief:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /doctor-brief/{sessionId}
+            Method: GET
+
+  # Conversational Health Literacy Guidance
+  GuidanceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: backend.handlers.guidance_handler.lambda_handler
+      MemorySize: 512
+      Timeout: 25
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CareCueSessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:aws:bedrock:*::foundation-model/${BedrockModelId}"
+                - "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+      Events:
+        AskGuidance:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /guidance
+            Method: POST
+
+Outputs:
+  HttpApiUrl:
+    Description: Base URL for CareCue HTTP API
+    Value: !Sub "https://${CareCueHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Export:
+      Name: !Sub "${AWS::StackName}-HttpApiUrl"
+
+  DocumentsBucketName:
+    Description: S3 Bucket for ephemeral uploaded medical documents
+    Value: !Ref CareCueDocumentsBucket
+
+  SessionsTableName:
+    Description: DynamoDB Table for CareCue user sessions
+    Value: !Ref CareCueSessionsTable
