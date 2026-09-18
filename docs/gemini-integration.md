@@ -16,9 +16,18 @@ Gemini acts as an **independent cross-check** in CareCue's multi-agent pipeline:
 
 - **No Browser Exposure**: The Gemini API key is **never** loaded in React, Vite client variables, HTML, or source maps.
 - **Server-Side Retrieval**:
-  1. Primary: Environment variable `GEMINI_API_KEY` in AWS Lambda.
-  2. Fallback: AWS Secrets Manager secret named `carecue/gemini-api-key`.
-- **In-Memory Caching**: Retrieved API keys are cached in-memory within the Lambda execution container to avoid repeated Secrets Manager charges.
+  1. Primary: AWS Secrets Manager secret named `carecue/dev/gemini` (contains key `GEMINI_API_KEY`).
+  2. Fallback: Environment variable `GEMINI_API_KEY` in AWS Lambda.
+  3. Secondary Fallback: AWS Secrets Manager secret named `carecue/gemini-api-key`.
+- **Least-Privilege IAM Policy**:
+  ```yaml
+  - Effect: Allow
+    Action:
+      - secretsmanager:GetSecretValue
+    Resource:
+      - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:carecue/dev/gemini*"
+  ```
+- **In-Memory Caching**: Retrieved API keys are cached in-memory (`_CACHED_API_KEY`) within the Lambda execution container to avoid repeated Secrets Manager charges ($0 cost).
 
 ---
 

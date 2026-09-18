@@ -78,7 +78,7 @@ class GeminiVerificationService:
         self._client = None
 
     def _get_api_key(self) -> Optional[str]:
-        """Retrieves API key with in-memory caching from env or AWS Secrets Manager."""
+        """Retrieves API key with in-memory caching from env or AWS Secrets Manager (carecue/dev/gemini)."""
         global _CACHED_API_KEY
         if _CACHED_API_KEY:
             return _CACHED_API_KEY
@@ -89,22 +89,49 @@ class GeminiVerificationService:
             _CACHED_API_KEY = key
             return key
 
-        # 2. AWS Secrets Manager fallback
+        # 2. AWS Secrets Manager (carecue/dev/gemini)
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        secret_name = os.environ.get("GEMINI_SECRET_NAME", "carecue/dev/gemini")
         try:
             import boto3
-            region = os.environ.get("AWS_REGION", "us-east-1")
             sm = boto3.client("secretsmanager", region_name=region)
-            secret = sm.get_secret_value(SecretId="carecue/gemini-api-key")
+            secret = sm.get_secret_value(SecretId=secret_name)
             secret_str = secret.get("SecretString", "{}")
             try:
                 secret_dict = json.loads(secret_str)
-                key = secret_dict.get("GEMINI_API_KEY", secret_str)
+                key = (
+                    secret_dict.get("GEMINI_API_KEY")
+                    or secret_dict.get("gemini_api_key")
+                    or secret_dict.get("apiKey")
+                    or secret_str
+                )
             except Exception:
                 key = secret_str
-            _CACHED_API_KEY = key
-            return key
-        except Exception:
-            return None
+            if key and key != "{}":
+                _CACHED_API_KEY = key
+                return key
+        except Exception as e:
+            logger.info(f"Secrets Manager lookup for '{secret_name}' in region '{region}' failed: {e}")
+
+        # Fallback to secondary name if custom secret name was used
+        if secret_name != "carecue/dev/gemini":
+            try:
+                import boto3
+                sm = boto3.client("secretsmanager", region_name=region)
+                secret = sm.get_secret_value(SecretId="carecue/dev/gemini")
+                secret_str = secret.get("SecretString", "{}")
+                try:
+                    secret_dict = json.loads(secret_str)
+                    key = secret_dict.get("GEMINI_API_KEY") or secret_str
+                except Exception:
+                    key = secret_str
+                if key and key != "{}":
+                    _CACHED_API_KEY = key
+                    return key
+            except Exception:
+                pass
+
+        return None
 
     def _get_genai_client(self):
         if self._client is not None:
@@ -119,8 +146,70 @@ class GeminiVerificationService:
             self._client = genai.Client(api_key=api_key)
             return self._client
         except Exception as e:
-            logger.warning(f"Failed to initialize google-genai Client: {e}")
+            logger.info(f"google-genai Client not initialized ({e}); using direct REST fallback.")
             return None
+
+    def _invoke_model(self, prompt_text: str, api_key: Optional[str] = None) -> str:
+        """
+        Executes a Gemini generateContent request with cost-safety bounds.
+        Uses google-genai SDK when available, and falls back to standard library urllib.request
+        to guarantee zero external dependency overhead in serverless Lambda runtime.
+        """
+        client = self._get_genai_client()
+        if client:
+            response = client.models.generate_content(
+                model=self.model_id,
+                contents=prompt_text,
+                config={
+                    "system_instruction": VERIFICATION_SYSTEM_INSTRUCTION,
+                    "response_mime_type": "application/json",
+                    "temperature": 0.1,
+                    "max_output_tokens": MAX_OUTPUT_TOKENS,
+                },
+            )
+            return response.text
+
+        # Standard library REST API invocation
+        import urllib.request
+        import urllib.error
+
+        if not api_key:
+            api_key = self._get_api_key()
+        if not api_key:
+            raise ValueError("Gemini API key not configured or retrieved.")
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_id}:generateContent"
+        request_body = {
+            "system_instruction": {
+                "parts": [{"text": VERIFICATION_SYSTEM_INSTRUCTION}]
+            },
+            "contents": [
+                {
+                    "parts": [{"text": prompt_text}]
+                }
+            ],
+            "generationConfig": {
+                "response_mime_type": "application/json",
+                "temperature": 0.1,
+                "maxOutputTokens": MAX_OUTPUT_TOKENS,
+            }
+        }
+        json_data = json.dumps(request_body).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        }
+        req = urllib.request.Request(url, data=json_data, headers=headers, method="POST")
+
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp_body = resp.read().decode("utf-8")
+            resp_json = json.loads(resp_body)
+            candidates = resp_json.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    return parts[0].get("text", "{}")
+            return "{}"
 
     def verify_finding(
         self,
@@ -139,12 +228,17 @@ class GeminiVerificationService:
 
         self._session_request_counts[session_id] = count + 1
 
-        # Check if live Gemini is enabled and client is ready
+        # Check if live Gemini is enabled and client or api key is ready
         enable_live = os.environ.get("ENABLE_LIVE_GEMINI", "true").lower() != "false"
-        client = self._get_genai_client() if enable_live else None
-
-        if not client:
+        if not enable_live:
             return self._deterministic_fallback(payload, session_id=session_id)
+
+        client = self._get_genai_client()
+        api_key = None
+        if not client:
+            api_key = self._get_api_key()
+            if not api_key:
+                return self._deterministic_fallback(payload, session_id=session_id)
 
         prompt_text = VERIFICATION_SCHEMA_PROMPT.format(
             finding=payload.finding[:300],
@@ -158,18 +252,7 @@ class GeminiVerificationService:
         _METRICS["gemini_request_count"] += 1
 
         try:
-            response = client.models.generate_content(
-                model=self.model_id,
-                contents=prompt_text,
-                config={
-                    "system_instruction": VERIFICATION_SYSTEM_INSTRUCTION,
-                    "response_mime_type": "application/json",
-                    "temperature": 0.1,
-                    "max_output_tokens": MAX_OUTPUT_TOKENS,
-                },
-            )
-
-            raw_json = response.text
+            raw_json = self._invoke_model(prompt_text, api_key)
             parsed = self._parse_structured_response(raw_json)
 
             # Record safe audit entry (no raw medical reports or keys)

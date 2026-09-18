@@ -19,6 +19,11 @@ Parameters:
     Default: anthropic.claude-3-5-sonnet-20241022-v2:0
     Description: Amazon Bedrock Foundation Model ID used for clinical document comprehension.
 
+  GeminiSecretName:
+    Type: String
+    Default: carecue/dev/gemini
+    Description: Name of the existing AWS Secrets Manager secret containing GEMINI_API_KEY.
+
 Globals:
   Function:
     Timeout: 30
@@ -31,6 +36,7 @@ Globals:
         SESSIONS_TABLE_NAME: !Ref CareCueSessionsTable
         DOCUMENTS_BUCKET_NAME: !Ref CareCueDocumentsBucket
         BEDROCK_MODEL_ID: !Ref BedrockModelId
+        GEMINI_SECRET_NAME: !Ref GeminiSecretName
         AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
 
 Resources:
@@ -197,7 +203,7 @@ Resources:
               Action:
                 - secretsmanager:GetSecretValue
               Resource:
-                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:carecue/gemini-api-key*"
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GeminiSecretName}*"
       Events:
         StartAnalysis:
           Type: HttpApi
@@ -228,7 +234,7 @@ Resources:
               Action:
                 - secretsmanager:GetSecretValue
               Resource:
-                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:carecue/gemini-api-key*"
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GeminiSecretName}*"
       Events:
         RunVerification:
           Type: HttpApi
