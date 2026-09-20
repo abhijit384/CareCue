@@ -47,6 +47,24 @@ const RELATIONSHIP_OPTIONS = [
   'Other',
 ];
 
+const toArray = (val: any): string[] => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.map(x => typeof x === 'string' ? x : (x?.name || x?.finding || JSON.stringify(x)));
+  if (typeof val === 'string') {
+    try {
+      const p = JSON.parse(val);
+      if (Array.isArray(p)) return p.map(x => typeof x === 'string' ? x : (x?.name || x?.finding || JSON.stringify(x)));
+    } catch {}
+    return val.split(',').map((s: string) => s.trim()).filter(Boolean);
+  }
+  return [];
+};
+
+const formatList = (val: any, fallback = 'None documented'): string => {
+  const arr = toArray(val);
+  return arr.length > 0 ? arr.join(', ') : fallback;
+};
+
 export function EmergencyMode() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string>('');
@@ -95,9 +113,9 @@ export function EmergencyMode() {
   const openEditModal = () => {
     if (!selectedPatient) return;
     setFormBloodGroup(selectedPatient.bloodGroup || 'Unknown');
-    setFormAllergies(selectedPatient.severeAllergies?.join(', ') || '');
-    setFormConditions(selectedPatient.importantConditions?.join(', ') || '');
-    setFormMedications(selectedPatient.currentMedications?.join(', ') || '');
+    setFormAllergies(formatList(selectedPatient.severeAllergies, ''));
+    setFormConditions(formatList(selectedPatient.importantConditions, ''));
+    setFormMedications(formatList(selectedPatient.currentMedications, ''));
     setFormContactName(selectedPatient.emergencyContact?.name || '');
     setFormContactPhone(selectedPatient.emergencyContact?.phone || '');
     setFormContactRel(selectedPatient.emergencyContact?.relationship || 'Spouse');
@@ -173,9 +191,9 @@ export function EmergencyMode() {
       `=== FIRST RESPONDER EMERGENCY BRIEF ===`,
       `Patient Name: ${selectedPatient.name}`,
       `Blood Group: ${selectedPatient.bloodGroup || 'Unknown'}`,
-      `Severe Allergies: ${selectedPatient.severeAllergies?.length ? selectedPatient.severeAllergies.join(', ') : 'None documented'}`,
-      `Medical Conditions: ${selectedPatient.importantConditions?.length ? selectedPatient.importantConditions.join(', ') : 'None documented'}`,
-      `Current Medications: ${selectedPatient.currentMedications?.length ? selectedPatient.currentMedications.join(', ') : 'None documented'}`,
+      `Severe Allergies: ${formatList(selectedPatient.severeAllergies)}`,
+      `Medical Conditions: ${formatList(selectedPatient.importantConditions)}`,
+      `Current Medications: ${formatList(selectedPatient.currentMedications)}`,
       homeAddr ? `Home Address: ${homeAddr}` : '',
       selectedPatient.emergencyContact ? `Emergency Contact: ${selectedPatient.emergencyContact.name} (${selectedPatient.emergencyContact.relationship}) - ${selectedPatient.emergencyContact.phone}` : '',
       selectedPatient.notes ? `Medical Notes: ${selectedPatient.notes}` : '',
@@ -297,17 +315,20 @@ export function EmergencyMode() {
                     Severe Allergies
                   </span>
                   <div className="text-right">
-                    {selectedPatient.severeAllergies && selectedPatient.severeAllergies.length > 0 ? (
-                      <div className="flex flex-wrap justify-end gap-1">
-                        {selectedPatient.severeAllergies.map((allergy, i) => (
-                          <span key={i} className="text-xs font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
-                            {allergy}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="font-semibold text-text-secondary text-xs">None documented</span>
-                    )}
+                    {(() => {
+                      const allergies = toArray(selectedPatient.severeAllergies);
+                      return allergies.length > 0 ? (
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {allergies.map((allergy: string, i: number) => (
+                            <span key={i} className="text-xs font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
+                              {allergy}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-text-secondary text-xs">None documented</span>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -317,7 +338,7 @@ export function EmergencyMode() {
                     Medical Conditions
                   </span>
                   <span className="font-semibold text-text-primary text-xs text-right max-w-[200px]">
-                    {selectedPatient.importantConditions?.join(', ') || 'None documented'}
+                    {formatList(selectedPatient.importantConditions)}
                   </span>
                 </div>
 
@@ -327,7 +348,7 @@ export function EmergencyMode() {
                     Active Medications
                   </span>
                   <span className="font-semibold text-text-primary text-xs text-right max-w-[200px]">
-                    {selectedPatient.currentMedications?.join(', ') || 'None documented'}
+                    {formatList(selectedPatient.currentMedications)}
                   </span>
                 </div>
               </div>

@@ -189,12 +189,20 @@ export const patientService = {
     extractedDob?: string,
     targetPatientId?: string
   ): Promise<PatientMatchResult> {
+    try {
+      const res = await liveApi.patients.match(extractedName, extractedDob, targetPatientId);
+      if (res && res.matchType) {
+        return res as PatientMatchResult;
+      }
+    } catch (e) {
+      console.debug('Live match error, using local fallback:', e);
+    }
+
     const patients = await this.list();
     const target = targetPatientId ? patients.find(p => p.patientId === targetPatientId) || null : null;
 
     if (target) {
-      const isMatch = target.name.toLowerCase().includes(extractedName.toLowerCase()) ||
-                      extractedName.toLowerCase().includes(target.name.toLowerCase());
+      const isMatch = target.name.trim().toLowerCase() === extractedName.trim().toLowerCase();
       if (isMatch) {
         return {
           matchType: 'EXACT_NAME_MATCH',
@@ -211,14 +219,14 @@ export const patientService = {
           extractedName,
           matchedPatient: null,
           targetPatient: target,
-          confidence: 0.2,
+          confidence: 0.95,
           message: `Extracted name "${extractedName}" does not match selected patient "${target.name}".`,
           isTargetMatch: false,
         };
       }
     }
 
-    const found = patients.find(p => p.name.toLowerCase().includes(extractedName.toLowerCase()));
+    const found = patients.find(p => p.name.trim().toLowerCase() === extractedName.trim().toLowerCase());
     if (found) {
       return {
         matchType: 'LIKELY_MATCH',
@@ -273,6 +281,19 @@ export const translationService = {
       console.warn('[CareCue] Translation failed:', err);
       return text;
     }
+  },
+
+  async translateBatch(items: Record<string, string>, targetLanguage: Language): Promise<Record<string, string>> {
+    if (targetLanguage === 'en') return items;
+    const translated: Record<string, string> = {};
+    for (const [key, val] of Object.entries(items)) {
+      if (typeof val === 'string' && val.trim()) {
+        translated[key] = await this.translateText(val, targetLanguage);
+      } else {
+        translated[key] = val;
+      }
+    }
+    return translated;
   },
 
   async translate(params: { text: string; targetLanguage: Language; preserveTerms?: string[] }): Promise<{ translatedText: string }> {
@@ -332,7 +353,7 @@ export const guidanceService = {
         answer: explanation.explainedSimply,
         evidencePoints: [
           {
-            claim: explanation.whyItAppears,
+            claim: explanation.whyItAppears || explanation.explainedSimply || 'Clinical overview of finding.',
             source: 'Clinical Guidance Comprehension Engine',
             verification: {
               status: 'consistent',
@@ -345,7 +366,7 @@ export const guidanceService = {
           'When should this be reassessed by a doctor?',
         ],
         safetyNote: null,
-        disclaimer: explanation.disclaimer,
+        disclaimer: explanation.disclaimer || 'CareCue provides AI-assisted educational information only, not medical diagnosis.',
       };
     } catch {
       return {

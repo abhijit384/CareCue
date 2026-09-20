@@ -41,6 +41,7 @@ interface ExplanationState {
   doctorSummary?: string;
   medicationsSummary?: string;
   labSummary?: string;
+  hardTermsExplained?: { term: string; simpleExplanation: string }[];
   nextVisitSummary?: string;
   whatThisMeans?: string;
   whyItAppears?: string;
@@ -50,6 +51,7 @@ interface ExplanationState {
   translatedDoctorSummary?: string;
   translatedMedicationsSummary?: string;
   translatedLabSummary?: string;
+  translatedHardTerms?: { term: string; simpleExplanation: string }[];
   translatedNextVisitSummary?: string;
   translatedWhy?: string;
   translatedQuestions?: string[];
@@ -62,12 +64,12 @@ export function TranslateExplain() {
   const urlPatientId = searchParams.get('patientId');
   const urlDocId = searchParams.get('docId');
 
-  const { activePatient, setActivePatient } = useAuth();
+  const { activePatient, patients: authPatients, setActivePatient } = useAuth();
   const { showToast } = useToast();
 
   // Patient & Document Context
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(urlPatientId || activePatient?.patientId || null);
+  const [patients, setPatients] = useState<Patient[]>(authPatients || []);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(urlPatientId || activePatient?.patientId || authPatients?.[0]?.patientId || null);
   
   // Sources
   const [sourceType, setSourceType] = useState<'document' | 'finding' | 'brief' | 'custom'>('brief');
@@ -120,15 +122,30 @@ export function TranslateExplain() {
     }
   }, [isPlaying]);
 
+  // Sync from AuthContext
+  useEffect(() => {
+    if (authPatients && authPatients.length > 0) {
+      setPatients(authPatients);
+      if (!selectedPatientId) {
+        const initialPid = urlPatientId || activePatient?.patientId || authPatients[0].patientId;
+        setSelectedPatientId(initialPid);
+        const match = authPatients.find(p => p.patientId === initialPid) || authPatients[0];
+        setActivePatient(match);
+      }
+    }
+  }, [authPatients, activePatient, urlPatientId, selectedPatientId, setActivePatient]);
+
   // Load patients and languages on mount
   useEffect(() => {
     patientService.list().then(pts => {
-      setPatients(pts);
-      if (pts.length > 0 && !selectedPatientId) {
-        const initialPid = urlPatientId || pts[0].patientId;
-        setSelectedPatientId(initialPid);
-        const match = pts.find(p => p.patientId === initialPid) || pts[0];
-        setActivePatient(match);
+      if (pts && pts.length > 0) {
+        setPatients(pts);
+        if (!selectedPatientId) {
+          const initialPid = urlPatientId || pts[0].patientId;
+          setSelectedPatientId(initialPid);
+          const match = pts.find(p => p.patientId === initialPid) || pts[0];
+          setActivePatient(match);
+        }
       }
     }).catch(() => {});
 
@@ -304,16 +321,45 @@ export function TranslateExplain() {
         });
 
         let trExplained = '';
+        let trDocSummary = '';
+        let trMedsSummary = '';
+        let trLabSummary = '';
+        let trNextVisit = '';
         let trWhy = '';
         let trQuestions: string[] = [];
+        let trHardTerms: { term: string; simpleExplanation: string }[] = [];
 
         if (targetLanguage !== 'en') {
           try {
-            trExplained = await translationService.translateText(exp.explainedSimply, targetLanguage as any);
-            trWhy = await translationService.translateText(exp.whyItAppears, targetLanguage as any);
+            const batchPayload: Record<string, any> = {
+              explainedSimply: exp.explainedSimply || '',
+              doctorSummary: exp.doctorSummary || exp.explainedSimply || '',
+              medicationsSummary: exp.medicationsSummary || '',
+              labSummary: exp.labSummary || '',
+              nextVisitSummary: exp.nextVisitSummary || '',
+              whyItAppears: exp.whyItAppears || '',
+            };
+
+            const trBatch = await translationService.translateBatch(batchPayload, targetLanguage as any);
+            trExplained = trBatch.explainedSimply || exp.explainedSimply || '';
+            trDocSummary = trBatch.doctorSummary || exp.doctorSummary || '';
+            trMedsSummary = trBatch.medicationsSummary || exp.medicationsSummary || '';
+            trLabSummary = trBatch.labSummary || exp.labSummary || '';
+            trNextVisit = trBatch.nextVisitSummary || exp.nextVisitSummary || '';
+            trWhy = trBatch.whyItAppears || exp.whyItAppears || '';
+
             if (exp.whatToDiscuss && exp.whatToDiscuss.length > 0) {
               trQuestions = await Promise.all(
-                exp.whatToDiscuss.map(q => translationService.translateText(q, targetLanguage as any))
+                exp.whatToDiscuss.map((q: string) => translationService.translateText(q, targetLanguage as any))
+              );
+            }
+
+            if (exp.hardTermsExplained && exp.hardTermsExplained.length > 0) {
+              trHardTerms = await Promise.all(
+                exp.hardTermsExplained.map(async (item: any) => ({
+                  term: item.term,
+                  simpleExplanation: await translationService.translateText(item.simpleExplanation, targetLanguage as any)
+                }))
               );
             }
           } catch (trErr) {
@@ -324,13 +370,22 @@ export function TranslateExplain() {
         const formattedResult: ExplanationState = {
           findingTitle: exp.findingTitle || sourceTitle || 'Doctor Visit Brief',
           explainedSimply: exp.explainedSimply,
+          doctorSummary: exp.doctorSummary || exp.explainedSimply,
+          medicationsSummary: exp.medicationsSummary,
+          labSummary: exp.labSummary,
+          hardTermsExplained: exp.hardTermsExplained || [],
+          nextVisitSummary: exp.nextVisitSummary,
           whatThisMeans: exp.whyItAppears,
           whyItAppears: exp.whyItAppears,
-          doctorSummary: exp.explainedSimply,
           questionsForDoctor: exp.whatToDiscuss || [],
           disclaimer: exp.disclaimer,
+
           translatedExplanation: trExplained || exp.explainedSimply,
-          translatedDoctorSummary: trExplained || exp.explainedSimply,
+          translatedDoctorSummary: trDocSummary || exp.doctorSummary || exp.explainedSimply,
+          translatedMedicationsSummary: trMedsSummary || exp.medicationsSummary,
+          translatedLabSummary: trLabSummary || exp.labSummary,
+          translatedHardTerms: trHardTerms.length > 0 ? trHardTerms : exp.hardTermsExplained,
+          translatedNextVisitSummary: trNextVisit || exp.nextVisitSummary,
           translatedWhy: trWhy || exp.whyItAppears,
           translatedQuestions: trQuestions.length > 0 ? trQuestions : exp.whatToDiscuss,
           targetLanguage,
@@ -369,11 +424,15 @@ export function TranslateExplain() {
   const getFullBriefSpeechText = (isTarget: boolean) => {
     if (!explanationResult) return '';
     if (isTarget) {
+      const hardTermsStr = explanationResult.translatedHardTerms && explanationResult.translatedHardTerms.length > 0
+        ? `Medical terms explained: ${explanationResult.translatedHardTerms.map(t => `${t.term}: ${t.simpleExplanation}`).join('. ')}`
+        : '';
       const parts = [
         explanationResult.translatedExplanation || explanationResult.explainedSimply || '',
         explanationResult.translatedDoctorSummary ? `Doctor notes: ${explanationResult.translatedDoctorSummary}` : '',
         explanationResult.translatedMedicationsSummary ? `Medicines: ${explanationResult.translatedMedicationsSummary}` : '',
         explanationResult.translatedLabSummary ? `Lab reports: ${explanationResult.translatedLabSummary}` : '',
+        hardTermsStr,
         explanationResult.translatedNextVisitSummary ? `Next visit plan: ${explanationResult.translatedNextVisitSummary}` : '',
         explanationResult.translatedQuestions && explanationResult.translatedQuestions.length > 0
           ? `Questions for your doctor: ${explanationResult.translatedQuestions.join('. ')}`
@@ -382,11 +441,15 @@ export function TranslateExplain() {
       return parts.filter(Boolean).join('. ');
     }
 
+    const hardTermsStrEn = explanationResult.hardTermsExplained && explanationResult.hardTermsExplained.length > 0
+      ? `Medical terms explained: ${explanationResult.hardTermsExplained.map(t => `${t.term}: ${t.simpleExplanation}`).join('. ')}`
+      : '';
     const parts = [
       explanationResult.explainedSimply || '',
       explanationResult.doctorSummary ? `Doctor notes: ${explanationResult.doctorSummary}` : '',
       explanationResult.medicationsSummary ? `Medicines: ${explanationResult.medicationsSummary}` : '',
       explanationResult.labSummary ? `Lab reports: ${explanationResult.labSummary}` : '',
+      hardTermsStrEn,
       explanationResult.nextVisitSummary ? `Next visit plan: ${explanationResult.nextVisitSummary}` : '',
       explanationResult.questionsForDoctor && explanationResult.questionsForDoctor.length > 0
         ? `Questions for your doctor: ${explanationResult.questionsForDoctor.join('. ')}`
@@ -862,6 +925,48 @@ export function TranslateExplain() {
                       : (explanationResult.labSummary || 'Laboratory observations documented for clinical tracking.')}
                   </p>
                 </div>
+
+                {/* 💡 Hard Doctor Terms & Medical Jargon Explained */}
+                {((explanationResult.hardTermsExplained && explanationResult.hardTermsExplained.length > 0) ||
+                  (explanationResult.translatedHardTerms && explanationResult.translatedHardTerms.length > 0)) && (
+                  <div className="p-3.5 rounded-xl bg-bg-primary border border-border-subtle space-y-2 md:col-span-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-text-primary">
+                        <HelpCircle className="w-3.5 h-3.5 text-purple-500" />
+                        <span>Hard Doctor Terms & Medical Jargon Explained</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const terms = explanationViewLang === 'target' && explanationResult.translatedHardTerms?.length
+                            ? explanationResult.translatedHardTerms
+                            : (explanationResult.hardTermsExplained || []);
+                          const txt = terms.map(t => `${t.term}: ${t.simpleExplanation}`).join('. ');
+                          handleSpeakText(txt, explanationViewLang === 'target' ? targetLanguage : 'en', 'sec-terms');
+                        }}
+                        className="p-1 rounded-md hover:bg-bg-surface text-text-muted hover:text-accent-teal transition-colors cursor-pointer"
+                        title="Listen to Hard Terms Explanation"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {(explanationViewLang === 'target' && explanationResult.translatedHardTerms?.length
+                        ? explanationResult.translatedHardTerms
+                        : (explanationResult.hardTermsExplained || [])
+                      ).map((item, idx) => (
+                        <div key={idx} className="p-2.5 rounded-lg bg-bg-surface border border-border-subtle">
+                          <span className="text-xs font-bold text-accent-teal block mb-0.5">
+                            {item.term}
+                          </span>
+                          <p className="text-xs text-text-secondary leading-relaxed">
+                            {item.simpleExplanation}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* 📅 Next Visit & Action Plan */}
                 <div className="p-3.5 rounded-xl bg-bg-primary border border-border-subtle space-y-1.5">

@@ -42,7 +42,7 @@ export function DoctorBriefPage() {
 
   // Sync selected patient
   useEffect(() => {
-    if (activePatient?.patientId && !selectedPatientId) {
+    if (activePatient?.patientId) {
       setSelectedPatientId(activePatient.patientId);
     } else if (patients.length > 0 && !selectedPatientId) {
       setSelectedPatientId(patients[0].patientId);
@@ -59,7 +59,11 @@ export function DoctorBriefPage() {
     setError(null);
     try {
       const data = await doctorBriefService.get(pId);
-      setBrief(data);
+      if (data && (data.documentSummary || (data as any).summary) && (data.keyFindings || (data as any).findings)) {
+        setBrief(data);
+      } else {
+        setBrief(null);
+      }
     } catch {
       setBrief(null);
     } finally {
@@ -201,6 +205,14 @@ export function DoctorBriefPage() {
           message={error}
           onRetry={handleGenerateBrief}
         />
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="max-w-3xl mx-auto px-5 sm:px-8 py-12">
+        <SkeletonDoctorBrief />
       </div>
     );
   }

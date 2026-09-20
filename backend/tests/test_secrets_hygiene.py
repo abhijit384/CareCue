@@ -15,7 +15,10 @@ AWS_KEY_PATTERN = re.compile(r"\bAKIA[0-9A-Z]{16}\b")
 
 def test_no_api_keys_in_backend():
     backend_dir = os.path.join(REPO_ROOT, "backend")
-    for root, _, files in os.walk(backend_dir):
+    vendor_dirs = {"botocore", "boto3", "google", "pydantic", "pydantic_core", "urllib3", "requests", "certifi", "httpx", "httpcore", "cryptography", "cffi", "pyasn1", "dist-info"}
+    for root, dirs, files in os.walk(backend_dir):
+        # Exclude vendor package subdirectories
+        dirs[:] = [d for d in dirs if not any(v in d.lower() for v in vendor_dirs)]
         for f in files:
             if f.endswith((".py", ".json", ".yaml", ".yml", ".md")):
                 path = os.path.join(root, f)

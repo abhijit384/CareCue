@@ -35,9 +35,14 @@ class ImageExtractor:
             )
         except Exception as e:
             logger.error(f"Image extraction failed: {e}")
+            err_msg = str(e)
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "quota" in err_msg.lower():
+                clean_err = "Gemini quota limit reached. Please wait a moment and try again."
+            else:
+                clean_err = err_msg.split("\n")[0] if err_msg else "Vision extraction unavailable"
             return ExtractedDocument(
                 total_pages=1,
-                pages=[DocumentPage(page_number=1, text=f"[Vision extraction error: {e}]")],
-                full_text=f"[Vision extraction error: {e}]",
+                pages=[DocumentPage(page_number=1, text=f"[Vision extraction notice: {clean_err}]")],
+                full_text=f"[Vision extraction notice: {clean_err}]",
                 extraction_method="vision",
             )

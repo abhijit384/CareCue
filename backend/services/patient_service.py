@@ -22,32 +22,47 @@ class PatientService:
 
     def extract_patient_info_from_text(self, document_text: str) -> Dict[str, Any]:
         """
-        Extracts patient name and date of birth using heuristic patterns.
+        Extracts patient name and date of birth using comprehensive heuristic patterns.
         """
         name = None
         dob = None
         confidence = 0.0
 
-        name_match = re.search(
-            r'(?:patient\s*(?:name)?|pt\s*name|name)\s*[:\-]\s*([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,3})',
-            document_text,
-            re.IGNORECASE
-        )
-        if name_match:
-            candidate = name_match.group(1).split('\n')[0].strip()
-            invalid_words = ("report", "test", "laboratory", "specimen", "hospital", "clinic", "panel", "complete", "blood", "chemistry", "order")
-            if not any(w in candidate.lower() for w in invalid_words) and len(candidate) > 2:
-                name = candidate
-                confidence += 0.7
+        patterns = [
+            r'(?:patient\s*(?:name)?|pt\.?\s*name|name\s*of\s*patient|patient\'s\s*name)\s*[:\-]\s*([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,4})',
+            r'(?:prescribed\s*(?:to|for)|rx\s*for)\s*[:\-]?\s*([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,4})',
+            r'(?:patient|pt)\s*[:\-]\s*([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,4})',
+            r'(?:name)\s*[:\-]\s*([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,4})',
+            r'(?:mr|mrs|ms|shri|smt|master)\.?\s+([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,3})',
+        ]
 
-        dob_match = re.search(
-            r'(?:dob|date\s*of\s*birth|birth\s*date)\s*[:\-]\s*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}|\d{4}[/\-\.]\d{1,2}[/\-\.]\d{1,2})',
-            document_text,
-            re.IGNORECASE
+        invalid_words = (
+            "report", "test", "laboratory", "specimen", "hospital", "clinic", "panel", "complete",
+            "blood", "chemistry", "order", "doctor", "dr", "physician", "pathology", "diagnostic",
+            "centre", "center", "page", "date", "findings", "summary", "rx", "tab", "cap", "inj"
         )
-        if dob_match:
-            dob = dob_match.group(1).strip()
-            confidence += 0.25
+
+        for pat in patterns:
+            match = re.search(pat, document_text, re.IGNORECASE)
+            if match:
+                candidate = match.group(1).split('\n')[0].strip()
+                # Clean candidate
+                candidate = re.sub(r'[,;\(\)\/\d].*$', '', candidate).strip()
+                if not any(w in candidate.lower() for w in invalid_words) and len(candidate) > 2:
+                    name = candidate
+                    confidence = 0.75
+                    break
+
+        dob_patterns = [
+            r'(?:dob|date\s*of\s*birth|birth\s*date)\s*[:\-]\s*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}|\d{4}[/\-\.]\d{1,2}[/\-\.]\d{1,2})',
+            r'(?:age\s*/\s*sex|age\s*:\s*\d+)\s*[:\-]?\s*(\d{1,3}\s*(?:y|yrs|years)?)',
+        ]
+        for d_pat in dob_patterns:
+            dob_match = re.search(d_pat, document_text, re.IGNORECASE)
+            if dob_match:
+                dob = dob_match.group(1).strip()
+                confidence += 0.20
+                break
 
         confidence = min(confidence, 0.98)
         if not name:
@@ -65,8 +80,8 @@ class PatientService:
         """Normalizes a name for robust matching: removes titles, qualifications, and punctuation."""
         if not name:
             return ""
-        n = re.sub(r'^(mr|mrs|ms|dr|prof)\.?\s+', '', name.strip(), flags=re.IGNORECASE)
-        n = re.sub(r',?\s+(md|phd|do|mbbs)$', '', n, flags=re.IGNORECASE)
+        n = re.sub(r'^(mr|mrs|ms|miss|dr|prof|shri|smt|master|baby)\.?\s+', '', name.strip(), flags=re.IGNORECASE)
+        n = re.sub(r',?\s+(md|phd|do|mbbs|ms|frcs|mrcp)$', '', n, flags=re.IGNORECASE)
         n = re.sub(r'[^a-zA-Z\s]', '', n)
         return " ".join(n.lower().split())
 
@@ -75,6 +90,7 @@ class PatientService:
         extracted_name: Optional[str],
         extracted_dob: Optional[str] = None,
         target_patient_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Compares extracted patient name against existing patients or active target patient.
@@ -90,7 +106,7 @@ class PatientService:
             }
 
         norm_extracted = self.normalize_name(extracted_name)
-        patients = self.store.list_patients()
+        patients = self.store.list_patients(user_id=user_id) if user_id else self.store.list_patients()
 
         # Target selected patient verification
         if target_patient_id:
@@ -98,7 +114,13 @@ class PatientService:
             if target:
                 is_self = (target.get("relationship") == "Self")
                 norm_target = self.normalize_name(target["name"])
-                if norm_extracted == norm_target:
+                
+                # Check for exact or single-word containment
+                is_exact = (norm_extracted == norm_target)
+                extracted_tokens = norm_extracted.split()
+                target_tokens = norm_target.split()
+
+                if is_exact:
                     return {
                         "matchType": "EXACT_NAME_MATCH",
                         "extractedName": extracted_name,
@@ -109,29 +131,43 @@ class PatientService:
                         "isTargetMatch": True,
                         "message": f"Document matches selected patient {target['name']}.",
                     }
-                else:
-                    # Check if there is already an existing patient with the extracted name
-                    existing_named_patient = None
-                    for p in patients:
-                        if self.normalize_name(p["name"]) == norm_extracted:
-                            existing_named_patient = p
-                            break
+                
+                # Single name vs full name matching (e.g. "Rahul" vs "Rahul Sharma")
+                if len(extracted_tokens) >= 1 and len(target_tokens) >= 1:
+                    if extracted_tokens[0] == target_tokens[0] and (len(extracted_tokens) == 1 or len(target_tokens) == 1):
+                        return {
+                            "matchType": "EXACT_NAME_MATCH",
+                            "extractedName": extracted_name,
+                            "matchedPatient": target,
+                            "targetPatient": target,
+                            "isSelfProfile": is_self,
+                            "confidence": 0.92,
+                            "isTargetMatch": True,
+                            "message": f"Document matches selected patient {target['name']}.",
+                        }
 
-                    msg = (
-                        f"This document/prescription belongs to '{extracted_name}', but this is your personal Self profile for '{target['name']}'. Please upload your own document, or create a separate profile for '{extracted_name}'."
-                        if is_self else
-                        f"Document name '{extracted_name}' does not match selected patient '{target['name']}'."
-                    )
-                    return {
-                        "matchType": "DIFFERENT_PATIENT",
-                        "extractedName": extracted_name,
-                        "matchedPatient": existing_named_patient,
-                        "targetPatient": target,
-                        "isSelfProfile": is_self,
-                        "confidence": 0.95,
-                        "isTargetMatch": False,
-                        "message": msg,
-                    }
+                # Check if there is already an existing patient with the extracted name
+                existing_named_patient = None
+                for p in patients:
+                    if self.normalize_name(p["name"]) == norm_extracted:
+                        existing_named_patient = p
+                        break
+
+                msg = (
+                    f"This document/prescription belongs to '{extracted_name}', but this is your personal Self profile for '{target['name']}'. Please upload your own document, or create a separate profile for '{extracted_name}'."
+                    if is_self else
+                    f"Document name '{extracted_name}' does not match selected patient '{target['name']}'."
+                )
+                return {
+                    "matchType": "DIFFERENT_PATIENT",
+                    "extractedName": extracted_name,
+                    "matchedPatient": existing_named_patient,
+                    "targetPatient": target,
+                    "isSelfProfile": is_self,
+                    "confidence": 0.95,
+                    "isTargetMatch": False,
+                    "message": msg,
+                }
 
         # Global matching across existing patients
         for p in patients:

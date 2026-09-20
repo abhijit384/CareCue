@@ -35,16 +35,57 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 DEFAULT_TABLE_NAME = os.environ.get("SESSIONS_TABLE_NAME") or os.environ.get("DYNAMODB_TABLE_NAME", "carecue-sessions-dev")
-_dynamo_table = None
+class DirectDynamoTable:
+    """Bulletproof DynamoDB client wrapper that works across all AWS Lambda environments without depending on boto3.resource models."""
+    def __init__(self, table_name: str, region: str = "us-east-1"):
+        self.table_name = table_name
+        import boto3
+        self.client = boto3.client("dynamodb", region_name=region)
+
+    def _to_dynamo_val(self, v):
+        if isinstance(v, str): return {"S": v}
+        elif isinstance(v, (int, float)): return {"N": str(v)}
+        elif isinstance(v, bool): return {"BOOL": v}
+        elif isinstance(v, dict): return {"M": {k: self._to_dynamo_val(val) for k, val in v.items()}}
+        elif isinstance(v, list): return {"L": [self._to_dynamo_val(val) for val in v]}
+        elif v is None: return {"NULL": True}
+        return {"S": str(v)}
+
+    def _from_dynamo_val(self, d):
+        if "S" in d: return d["S"]
+        if "N" in d: return float(d["N"]) if "." in d["N"] else int(d["N"])
+        if "BOOL" in d: return d["BOOL"]
+        if "M" in d: return {k: self._from_dynamo_val(v) for k, v in d["M"].items()}
+        if "L" in d: return [self._from_dynamo_val(v) for v in d["L"]]
+        if "NULL" in d: return None
+        return list(d.values())[0] if d else None
+
+    def put_item(self, Item: dict):
+        dynamo_item = {k: self._to_dynamo_val(v) for k, v in Item.items()}
+        self.client.put_item(TableName=self.table_name, Item=dynamo_item)
+
+    def get_item(self, Key: dict) -> dict:
+        dynamo_key = {k: self._to_dynamo_val(v) for k, v in Key.items()}
+        res = self.client.get_item(TableName=self.table_name, Key=dynamo_key)
+        item = res.get("Item")
+        if not item: return {}
+        return {"Item": {k: self._from_dynamo_val(v) for k, v in item.items()}}
+
+    def delete_item(self, Key: dict):
+        dynamo_key = {k: self._to_dynamo_val(v) for k, v in Key.items()}
+        self.client.delete_item(TableName=self.table_name, Key=dynamo_key)
+
+    def scan(self) -> dict:
+        res = self.client.scan(TableName=self.table_name)
+        items = res.get("Items", [])
+        return {"Items": [{k: self._from_dynamo_val(v) for k, v in item.items()} for item in items]}
 
 def get_dynamo_table():
     global _dynamo_table
     if _dynamo_table is None:
         try:
-            import boto3
             region = os.environ.get("AWS_REGION", "us-east-1")
-            dynamodb = boto3.resource("dynamodb", region_name=region)
-            _dynamo_table = dynamodb.Table(DEFAULT_TABLE_NAME)
+            _dynamo_table = DirectDynamoTable(DEFAULT_TABLE_NAME, region=region)
         except Exception as e:
             logger.warning(f"DynamoDB Table initialization notice: {e}")
             return None
@@ -89,6 +130,7 @@ class PatientStore:
                 "entityType": "document",
                 "documentId": doc["documentId"],
                 "patientId": doc.get("patientId") or "",
+                "userId": doc.get("userId") or "",
                 "updatedAt": doc.get("uploadedAt", now),
                 "dataJson": json.dumps(doc),
                 "ttl": int(time.time()) + (90 * 86400),
@@ -147,32 +189,36 @@ class PatientStore:
             if not doc_id:
                 return
             now = datetime.now(timezone.utc).isoformat()
+            user_id = data.get("userId") or item.get("userId")
+            p_id = data.get("patientId") or item.get("patientId")
             pages_json = json.dumps(data.get("pages", [])) if isinstance(data.get("pages"), list) else data.get("pages_json", "[]")
             structured_json = json.dumps(data.get("structuredData", {})) if isinstance(data.get("structuredData"), dict) else data.get("structured_data_json", "{}")
             evidence_json = json.dumps(data.get("sourceEvidence", [])) if isinstance(data.get("sourceEvidence"), list) else data.get("source_evidence_json", "[]")
 
             with get_db_connection() as conn:
                 cursor = conn.cursor()
-                p_id = data.get("patientId")
+                if user_id:
+                    ensure_user_exists(cursor, user_id)
                 if p_id:
                     cursor.execute("SELECT patient_id FROM patients WHERE patient_id = ?", (p_id,))
                     if not cursor.fetchone():
                         cursor.execute("""
-                        INSERT OR IGNORE INTO patients (patient_id, name, relationship, created_at, updated_at)
-                        VALUES (?, 'Patient', 'Self', ?, ?);
-                        """, (p_id, now, now))
+                        INSERT OR IGNORE INTO patients (patient_id, user_id, name, relationship, created_at, updated_at)
+                        VALUES (?, ?, 'Patient', 'Self', ?, ?);
+                        """, (p_id, user_id, now, now))
 
                 cursor.execute("""
                 INSERT OR REPLACE INTO documents (
-                    document_id, patient_id, original_file_name, display_name,
+                    document_id, patient_id, user_id, original_file_name, display_name,
                     document_type, mime_type, file_size_bytes, storage_path,
                     extracted_text, extraction_method, pages_json,
                     structured_data_json, source_evidence_json, processing_status,
                     uploaded_at, analyzed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """, (
                     doc_id,
                     p_id,
+                    user_id,
                     data.get("originalFileName", "Document.pdf"),
                     data.get("displayName", "Document"),
                     data.get("documentType", "OTHER"),
@@ -206,13 +252,22 @@ class PatientStore:
         table = get_dynamo_table()
         if table:
             try:
-                res = table.scan(Limit=200)
-                for item in res.get("Items", []):
-                    etype = item.get("entityType")
-                    if etype == "patient":
-                        self._restore_patient_from_dynamo(item)
-                    elif etype == "document":
-                        self._restore_document_from_dynamo(item)
+                scan_kwargs = {}
+                done = False
+                start_key = None
+                while not done:
+                    if start_key:
+                        scan_kwargs["ExclusiveStartKey"] = start_key
+                    res = table.scan(**scan_kwargs)
+                    for item in res.get("Items", []):
+                        etype = item.get("entityType")
+                        if etype == "patient":
+                            self._restore_patient_from_dynamo(item)
+                        elif etype == "document":
+                            self._restore_document_from_dynamo(item)
+                    start_key = res.get("LastEvaluatedKey")
+                    if not start_key:
+                        done = True
             except Exception as e:
                 logger.debug(f"DynamoDB scan patients notice: {e}")
 
@@ -222,8 +277,10 @@ class PatientStore:
             params = []
 
             if user_id:
-                conditions.append("(p.user_id = ? OR p.user_id IS NULL OR p.user_id = '' OR p.is_demo = 1)")
+                conditions.append("(p.user_id = ?)")
                 params.append(user_id)
+            else:
+                conditions.append("(p.user_id IS NULL OR p.user_id = '' OR p.is_demo = 1)")
 
             if search_query:
                 conditions.append("(p.name LIKE ? OR p.patient_id LIKE ?)")
@@ -457,14 +514,15 @@ class PatientStore:
         evidence_json = json.dumps(doc.get("sourceEvidence", [])) if isinstance(doc.get("sourceEvidence"), list) else doc.get("source_evidence_json", "[]")
 
         patient_id = doc.get("patientId")
+        user_id = doc.get("userId") or doc.get("user_id")
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            if user_id:
+                ensure_user_exists(cursor, user_id)
             if patient_id:
                 cursor.execute("SELECT patient_id FROM patients WHERE patient_id = ?", (patient_id,))
                 if not cursor.fetchone():
-                    user_id = doc.get("userId")
-                    if user_id:
-                        ensure_user_exists(cursor, user_id)
                     cursor.execute("""
                     INSERT OR IGNORE INTO patients (patient_id, user_id, name, relationship, created_at, updated_at)
                     VALUES (?, ?, ?, 'Self', ?, ?);
@@ -472,14 +530,15 @@ class PatientStore:
 
             cursor.execute("""
             INSERT INTO documents (
-                document_id, patient_id, original_file_name, display_name,
+                document_id, patient_id, user_id, original_file_name, display_name,
                 document_type, mime_type, file_size_bytes, storage_path,
                 extracted_text, extraction_method, pages_json,
                 structured_data_json, source_evidence_json, processing_status,
                 uploaded_at, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(document_id) DO UPDATE SET
                 patient_id = COALESCE(excluded.patient_id, documents.patient_id),
+                user_id = COALESCE(excluded.user_id, documents.user_id),
                 display_name = excluded.display_name,
                 document_type = excluded.document_type,
                 extracted_text = excluded.extracted_text,
@@ -492,6 +551,7 @@ class PatientStore:
             """, (
                 doc_id,
                 patient_id,
+                user_id,
                 doc.get("originalFileName", "report.pdf"),
                 doc.get("displayName", "Medical Report"),
                 doc.get("documentType", "OTHER"),
@@ -547,13 +607,21 @@ class PatientStore:
         table = get_dynamo_table()
         if table:
             try:
-                res = table.scan(
-                    FilterExpression="patientId = :pid AND entityType = :etype",
-                    ExpressionAttributeValues={":pid": patient_id, ":etype": "document"},
-                    Limit=50
-                )
-                for item in res.get("Items", []):
-                    self._restore_document_from_dynamo(item)
+                scan_kwargs = {
+                    "FilterExpression": "patientId = :pid AND entityType = :etype",
+                    "ExpressionAttributeValues": {":pid": patient_id, ":etype": "document"},
+                }
+                done = False
+                start_key = None
+                while not done:
+                    if start_key:
+                        scan_kwargs["ExclusiveStartKey"] = start_key
+                    res = table.scan(**scan_kwargs)
+                    for item in res.get("Items", []):
+                        self._restore_document_from_dynamo(item)
+                    start_key = res.get("LastEvaluatedKey")
+                    if not start_key:
+                        done = True
             except Exception as e:
                 logger.debug(f"DynamoDB scan patient docs notice: {e}")
 
@@ -874,6 +942,22 @@ class PatientStore:
             VALUES (?, ?, ?, ?);
             """, (brief_id, patient_id, json.dumps(brief), now))
             conn.commit()
+
+        # Sync to DynamoDB
+        table = get_dynamo_table()
+        if table:
+            try:
+                table.put_item(Item={
+                    "sessionId": f"brief#{patient_id}",
+                    "entityType": "doctor_brief",
+                    "patientId": patient_id,
+                    "briefJson": json.dumps(brief),
+                    "createdAt": now,
+                    "ttl": int(time.time()) + (90 * 86400),
+                })
+            except Exception as e:
+                logger.warning(f"Could not persist doctor brief to DynamoDB: {e}")
+
         return brief
 
     def get_doctor_brief(self, patient_id: str) -> Optional[Dict[str, Any]]:
@@ -885,9 +969,25 @@ class PatientStore:
             ORDER BY created_at DESC LIMIT 1;
             """, (patient_id,))
             row = cursor.fetchone()
-            if not row:
-                return None
-            return json.loads(row["brief_json"])
+            if row and row["brief_json"]:
+                try:
+                    return json.loads(row["brief_json"])
+                except Exception:
+                    pass
+
+        # DynamoDB fallback
+        table = get_dynamo_table()
+        if table:
+            try:
+                res = table.get_item(Key={"sessionId": f"brief#{patient_id}"})
+                item = res.get("Item")
+                if item and item.get("briefJson"):
+                    return json.loads(item["briefJson"])
+            except Exception as e:
+                logger.warning(f"Could not load doctor brief from DynamoDB: {e}")
+
+        return None
+
 
     # ─── Row Mappers ───
 
@@ -960,6 +1060,7 @@ class PatientStore:
         return {
             "documentId": d["document_id"],
             "patientId": d.get("patient_id"),
+            "userId": d.get("user_id"),
             "originalFileName": d["original_file_name"],
             "displayName": d["display_name"],
             "documentType": d["document_type"] if d["document_type"] != "OTHER" else structured.get("documentType", "OTHER"),
@@ -977,9 +1078,13 @@ class PatientStore:
             # Frontend compatibility fields
             "createdAt": d["uploaded_at"],
             "status": status_text,
-            "sourceReference": d["display_name"],
+            "sourceReference": d.get("display_name") or d.get("original_file_name") or "Clinical Document",
             "findingsCount": findings_count,
             "summary": summary_text,
         }
 
+
 patient_store = PatientStore()
+
+
+

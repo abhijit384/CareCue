@@ -36,13 +36,13 @@ Parameters:
 
   SmtpUsername:
     Type: String
-    Default: ""
+    Default: noreplycarecue@gmail.com
     Description: SMTP username/email address.
 
   SmtpPassword:
     Type: String
     NoEcho: true
-    Default: ""
+    Default: dhqorzjqkmefsjeu
     Description: SMTP application password.
 
   SmtpUseTls:

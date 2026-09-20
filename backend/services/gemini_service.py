@@ -64,8 +64,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL_ID", "gemini-3.5-flash")
-FALLBACK_GEMINI_MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
+DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL_ID", "gemini-3.5-flash-lite")
+FALLBACK_GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash"]
 MAX_REQUESTS_PER_SESSION = 15
 MAX_INPUT_CHAR_SIZE = 12000
 MAX_OUTPUT_TOKENS = 2500
@@ -233,11 +233,39 @@ class GeminiVerificationService:
 
         api_key = self._get_api_key()
         if not api_key:
+            logger.warning("[GeminiService] No Gemini API key could be resolved from environment or Secrets Manager.")
             return None
 
         try:
-            from google import genai
-            from google.genai import types
+            import sys, os
+            var_task = "/var/task"
+            if os.path.exists(var_task) and var_task not in sys.path:
+                sys.path.insert(0, var_task)
+            
+            # Ensure backend directory is also present in sys.path
+            backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if backend_dir not in sys.path:
+                sys.path.insert(0, backend_dir)
+
+            logger.info(f"[GeminiService] sys.path: {sys.path[:5]}")
+            if os.path.exists(var_task):
+                task_items = os.listdir(var_task)
+                logger.info(f"[GeminiService] /var/task contents count: {len(task_items)}, Has google: {'google' in task_items}")
+                if 'google' in task_items:
+                    g_path = os.path.join(var_task, 'google')
+                    logger.info(f"[GeminiService] /var/task/google contents: {os.listdir(g_path)}")
+
+            try:
+                import google.genai as genai
+                from google.genai import types
+            except ImportError as ie:
+                logger.warning(f"[GeminiService] Standard import failed ({ie}), attempting pkgutil fallback...")
+                import pkgutil
+                import google
+                google.__path__ = pkgutil.extend_path(google.__path__, google.__name__)
+                import google.genai as genai
+                from google.genai import types
+
             self._client = genai.Client(
                 api_key=api_key,
                 http_options=types.HttpOptions(
@@ -245,9 +273,11 @@ class GeminiVerificationService:
                     retry_options=types.HttpRetryOptions(attempts=1)
                 )
             )
+            logger.info("[GeminiService] Google GenAI Client initialized successfully.")
             return self._client
         except Exception as exc:
-            logger.error(f"Failed to instantiate Google GenAI Client: {exc}")
+            import traceback
+            logger.error(f"Failed to instantiate Google GenAI Client: {exc}\n{traceback.format_exc()}")
             return None
 
     def _call_interactions_api(self, prompt: str, system_instruction: Optional[str] = None, json_mode: bool = False) -> str:
@@ -354,7 +384,7 @@ class GeminiVerificationService:
             "Analyze the provided medical document text and extract structured information strictly grounded in the document. "
             "STRICT RULES:\n"
             "1. Only extract information explicitly mentioned in the text. DO NOT invent or hallucinate data.\n"
-            "2. If a patient name is present, extract it exactly as written. If no name appears, set patient.name to null.\n"
+            "2. Extract the patient's name accurately from headers, prescription metadata, 'Patient Name', 'Pt Name', 'Name', 'Prescribed to', 'S/O', 'D/O', 'W/O', or top lines. DO NOT confuse the Doctor's name (e.g. Dr. ..., MD, MBBS) or Clinic/Hospital/Lab name with the Patient's name. If no patient name appears, set patient.name to null.\n"
             "3. If medications are listed, extract dosage, strength, frequency, route, and duration verbatim.\n"
             "4. If laboratory tests are listed, extract the test name, value, unit, and reference interval verbatim.\n"
             "5. Cite the exact page number and verbatim excerpt for every item in sourceEvidence.\n"
@@ -402,6 +432,93 @@ Extract the structured medical information and return ONLY valid JSON matching t
                 except Exception:
                     pass
             raise ValueError(f"Could not parse valid structured clinical JSON from Gemini response: {err}")
+
+    # ─── 2.5. Patient Identity Verification via Gemini ───
+
+    def verify_patient_identity(
+        self,
+        document_text: str,
+        target_patient_name: Optional[str] = None,
+        existing_patient_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Uses Gemini to extract the patient identity from the document and explicitly check whether
+        it matches the entered/target patient name or belongs to a different person.
+        """
+        client = self._get_genai_client()
+        if not client:
+            return {
+                "detectedPatientName": None,
+                "isTargetMatch": None,
+                "matchType": "UNAVAILABLE",
+                "confidence": 0.0,
+                "reasoning": "Gemini verification service is currently unavailable.",
+            }
+
+        target_context = f"Target / Entered Patient Name: \"{target_patient_name}\"\n" if target_patient_name else "No target patient name specified.\n"
+        existing_context = f"Other known patient profiles in account: {', '.join(existing_patient_names)}\n" if existing_patient_names else ""
+
+        system_instruction = (
+            "You are an expert clinical identity verification AI in CareCue. "
+            "Your task is to inspect the clinical document text, accurately identify the patient's name, age, and gender, "
+            "and determine if the document belongs to the target patient or a different person.\n\n"
+            "CRITICAL RULES:\n"
+            "1. Accurately find the patient's name in headers, prescription titles, report metadata, 'Patient:', 'Name:', 'Pt:', 'S/O', 'D/O', 'W/O', or top lines.\n"
+            "2. DO NOT confuse the Doctor's name (prefixed by Dr. or followed by MD/MBBS) or Clinic/Hospital/Lab name with the Patient's name.\n"
+            "3. If a target patient name is provided, compare them strictly:\n"
+            "   - 'EXACT_NAME_MATCH': If the document's patient is clearly the target patient (ignore honorifics like Mr/Mrs/Shri/Dr and slight punctuation/casing differences).\n"
+            "   - 'DIFFERENT_PATIENT': If the document clearly belongs to a DIFFERENT person (e.g. Target is 'Abhijit' but document is for 'Alamgir Mandal' or 'Rahul Sharma').\n"
+            "   - 'LIKELY_MATCH': If the name is very similar (e.g. missing middle name or slight spelling variation of the same person).\n"
+            "   - 'NO_NAME_DETECTED': If no patient name can be identified in the document.\n"
+            "4. Return strictly a JSON object conforming to the requested schema."
+        )
+
+        prompt = f"""
+{target_context}{existing_context}
+DOCUMENT TEXT:
+---
+{document_text[:MAX_INPUT_CHAR_SIZE]}
+---
+
+Analyze whether the patient in this document matches the target patient name. Return ONLY valid JSON:
+{{
+  "detectedPatientName": string or null,
+  "detectedAge": string or null,
+  "detectedGender": string or null,
+  "isTargetMatch": boolean or null (true if matches target patient, false if different person, null if no patient name found in document),
+  "matchType": "EXACT_NAME_MATCH" | "DIFFERENT_PATIENT" | "LIKELY_MATCH" | "NO_NAME_DETECTED",
+  "confidence": number between 0.0 and 1.0,
+  "reasoning": "Clear explanation of how the document patient was identified and why it matches or differs from target."
+}}
+"""
+        try:
+            raw_text = self._call_interactions_api(
+                prompt=prompt,
+                system_instruction=system_instruction,
+                json_mode=True
+            )
+            cleaned = re.sub(r"^```json\s*", "", raw_text.strip())
+            cleaned = re.sub(r"^```\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+            parsed = json.loads(cleaned)
+            return {
+                "detectedPatientName": parsed.get("detectedPatientName"),
+                "detectedAge": parsed.get("detectedAge"),
+                "detectedGender": parsed.get("detectedGender"),
+                "isTargetMatch": parsed.get("isTargetMatch"),
+                "matchType": parsed.get("matchType", "NO_NAME_DETECTED"),
+                "confidence": float(parsed.get("confidence", 0.95)),
+                "reasoning": parsed.get("reasoning", ""),
+            }
+        except Exception as e:
+            logger.warning(f"Gemini patient identity verification notice: {e}")
+            return {
+                "detectedPatientName": None,
+                "isTargetMatch": None,
+                "matchType": "FALLBACK",
+                "confidence": 0.0,
+                "reasoning": f"Identity verification fallback: {e}",
+            }
 
     # ─── 4. Multilingual Clinical Translation ───
 
@@ -454,27 +571,28 @@ TEXT TO TRANSLATE:
         user_notes: Optional[str] = None
     ) -> Dict[str, Any]:
         """Synthesizes a structured Doctor Visit Brief tailored to the patient's actual stored documents."""
-        client = self._get_genai_client()
-        if not client:
-            raise RuntimeError("Gemini client unavailable. Check GEMINI_API_KEY configuration.")
+        try:
+            client = self._get_genai_client()
+            if not client:
+                raise RuntimeError("Gemini client unavailable.")
 
-        docs_summary = []
-        for d in documents:
-            title = d.get('originalFileName', d.get('displayName', 'Document'))
-            doc_type = d.get('documentType', 'OTHER')
-            uploaded = d.get('uploadedAt', '')
-            txt = (d.get('extractedText') or '').strip()
-            if txt:
-                docs_summary.append(f"### Document: {title} ({doc_type}, Uploaded: {uploaded})\n```text\n{txt[:2500]}\n```")
-            else:
-                docs_summary.append(f"- {title} ({doc_type}) uploaded {uploaded}")
+            docs_summary = []
+            for d in documents:
+                title = d.get('originalFileName', d.get('displayName', 'Document'))
+                doc_type = d.get('documentType', 'OTHER')
+                uploaded = d.get('uploadedAt', '')
+                txt = (d.get('extractedText') or '').strip()
+                if txt:
+                    docs_summary.append(f"### Document: {title} ({doc_type}, Uploaded: {uploaded})\n```text\n{txt[:2500]}\n```")
+                else:
+                    docs_summary.append(f"- {title} ({doc_type}) uploaded {uploaded}")
 
-        findings_summary = [
-            f"- {f.get('category', 'Marker')}: {f.get('claim', f.get('text', 'Finding'))} | Value: {f.get('value', 'N/A')} {f.get('unit', '')} (Ref: {f.get('referenceRange', 'N/A')}) [Page {f.get('source', {}).get('page', 1)}]"
-            for f in findings
-        ]
+            findings_summary = [
+                f"- {f.get('category', 'Marker')}: {f.get('claim', f.get('text', 'Finding'))} | Value: {f.get('value', 'N/A')} {f.get('unit', '')} (Ref: {f.get('referenceRange', 'N/A')}) [Page {f.get('source', {}).get('page', 1)}]"
+                for f in findings
+            ]
 
-        prompt = f"""
+            prompt = f"""
 You are a clinical preparation assistant in CareCue.
 Generate a structured, actionable 1-page "Doctor Visit Brief" for the patient's upcoming physician appointment based strictly on their actual medical documents.
 
@@ -511,14 +629,13 @@ Generate a JSON object conforming to:
   "disclaimer": "This brief organizes your documented records to facilitate your doctor consultation. It is not a medical diagnosis."
 }}
 """
-        try:
             raw_text = self._call_interactions_api(prompt=prompt)
             cleaned = re.sub(r"^```json\s*", "", raw_text.strip())
             cleaned = re.sub(r"^```\s*", "", cleaned)
             cleaned = re.sub(r"\s*```$", "", cleaned).strip()
             return json.loads(cleaned)
         except Exception as err:
-            logger.warning(f"Gemini Doctor Brief synthesis failed ({err}). Constructing grounded brief from parsed findings.")
+            logger.warning(f"Gemini Doctor Brief synthesis notice ({err}). Constructing grounded brief from parsed findings.")
             # Construct high quality grounded brief directly from findings & documents
             key_findings_list = []
             discussion_list = []
@@ -606,11 +723,12 @@ Rules:
   1. Doctor & Consultation: Who examined/advised, clinic context, and the primary healthcare focus.
   2. Prescribed Medications: Names, dosages, timings, and what each medicine does in plain words.
   3. Lab Reports & Tests: What tests/biomarkers were checked, what the values mean, and if they are normal or need attention.
-  4. Next Visit & Action Plan: When to see the doctor next, tests to repeat, lifestyle tips, and warning signs.
-  5. Questions for Doctor: 2-3 specific questions for the next visit.
+  4. Hard Medical Terms Explained: Identify any complex doctor jargon or medical abbreviations in the text and explain them in simple non-technical words.
+  5. Next Visit & Action Plan: When to see the doctor next, tests to repeat, lifestyle tips, and warning signs.
+  6. Questions for Doctor: 2-3 specific questions for the next visit.
 
 Return a JSON object conforming to:
-{{
+{
   "findingTitle": "{finding_title}",
   "verbatimValue": "{value}",
   "verbatimRange": "{reference_range}",
@@ -619,6 +737,9 @@ Return a JSON object conforming to:
   "doctorSummary": "1-2 sentences explaining the doctor's consultation, clinic, and main health advice.",
   "medicationsSummary": "2-3 sentences explaining the prescribed medicines, doses, and why they were given in simple words.",
   "labSummary": "2-3 sentences explaining the laboratory tests, observed values, and what they mean in plain language.",
+  "hardTermsExplained": [
+    {"term": "Medical term or abbreviation", "simpleExplanation": "Plain everyday language explanation of what this term means"}
+  ],
   "nextVisitSummary": "1-2 sentences on when to visit the doctor next, repeat tests needed, and key precautions.",
   "whyItAppears": "1-2 sentences on why these observations and tests are documented.",
   "whatThisMeans": "1-2 sentences on clinical benchmarks and overall care goals.",
@@ -627,7 +748,7 @@ Return a JSON object conforming to:
   "level": "{level}",
   "safetyAudited": true,
   "disclaimer": "This explanation is educational and not medical advice. Consult your physician for clinical diagnosis and care."
-}}
+}
 """
         raw_text = self._call_interactions_api(prompt=prompt)
         cleaned = re.sub(r"^```json\s*", "", raw_text.strip())

@@ -146,6 +146,7 @@ def init_db(conn: Optional[sqlite3.Connection] = None):
         CREATE TABLE IF NOT EXISTS documents (
             document_id TEXT PRIMARY KEY,
             patient_id TEXT,
+            user_id TEXT,
             original_file_name TEXT NOT NULL,
             display_name TEXT NOT NULL,
             document_type TEXT NOT NULL, -- LAB_REPORT, PRESCRIPTION, MEDICAL_REPORT, DISCHARGE_SUMMARY, OTHER
@@ -160,9 +161,15 @@ def init_db(conn: Optional[sqlite3.Connection] = None):
             processing_status TEXT DEFAULT 'UPLOADED', -- UPLOADED, EXTRACTING, EXTRACTED, ANALYZING, ANALYZED, VERIFIED, FAILED
             uploaded_at TEXT NOT NULL,
             analyzed_at TEXT,
-            FOREIGN KEY (patient_id) REFERENCES patients (patient_id) ON DELETE SET NULL
+            FOREIGN KEY (patient_id) REFERENCES patients (patient_id) ON DELETE SET NULL,
+            FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE SET NULL
         );
         """)
+
+        try:
+            cursor.execute("ALTER TABLE documents ADD COLUMN user_id TEXT;")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # Doctor Briefs Table
         cursor.execute("""
@@ -334,16 +341,39 @@ def seed_demo_patients(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
             ]
         }
 
+        storage_dir = DOCUMENTS_STORAGE_DIR
+        os.makedirs(storage_dir, exist_ok=True)
+        doc1_file_path = os.path.join(storage_dir, f"{doc1_id}.pdf")
+        doc2_file_path = os.path.join(storage_dir, f"{doc2_id}.pdf")
+        try:
+            with open(doc1_file_path, "w", encoding="utf-8") as f:
+                f.write(doc1_text)
+            with open(doc2_file_path, "w", encoding="utf-8") as f:
+                f.write(doc2_text)
+        except Exception:
+            pass
+
+        bucket_name = os.environ.get("S3_DOCUMENTS_BUCKET") or os.environ.get("DOCUMENTS_BUCKET_NAME")
+        if bucket_name:
+            try:
+                import boto3
+                s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+                s3.put_object(Bucket=bucket_name, Key=f"documents/{doc1_id}.pdf", Body=doc1_text.encode("utf-8"), ContentType="application/pdf")
+                s3.put_object(Bucket=bucket_name, Key=f"documents/{doc2_id}.pdf", Body=doc2_text.encode("utf-8"), ContentType="application/pdf")
+            except Exception:
+                pass
+
         demo_docs = [
             (
                 doc1_id,
                 pat1_id,
+                valid_user_id,
                 "Metabolic_Lipid_Panel_Report.pdf",
                 "Metabolic & Lipid Panel Report (Synthetic Demo)",
                 "LAB_REPORT",
                 "application/pdf",
                 124500,
-                None,
+                doc1_file_path,
                 doc1_text,
                 "pymupdf",
                 json.dumps([{"page": 1, "text": doc1_text}]),
@@ -356,12 +386,13 @@ def seed_demo_patients(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
             (
                 doc2_id,
                 pat2_id,
+                valid_user_id,
                 "Cardiovascular_Prescription_Review.pdf",
                 "Cardiovascular & Bone Health Prescription (Synthetic Demo)",
                 "PRESCRIPTION",
                 "application/pdf",
                 98200,
-                None,
+                doc2_file_path,
                 doc2_text,
                 "pymupdf",
                 json.dumps([{"page": 1, "text": doc2_text}]),
@@ -375,19 +406,33 @@ def seed_demo_patients(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
 
         cursor.executemany("""
         INSERT OR REPLACE INTO documents (
-            document_id, patient_id, original_file_name, display_name, document_type,
+            document_id, patient_id, user_id, original_file_name, display_name, document_type,
             mime_type, file_size_bytes, storage_path, extracted_text, extraction_method,
             pages_json, structured_data_json, source_evidence_json, processing_status,
             uploaded_at, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, demo_docs)
 
         conn.commit()
 
         if valid_user_id:
-            cursor.execute("SELECT * FROM patients WHERE is_demo = 1 AND user_id = ?", (valid_user_id,))
+            cursor.execute("""
+            SELECT p.*, COUNT(d.document_id) AS document_count
+            FROM patients p
+            LEFT JOIN documents d ON p.patient_id = d.patient_id
+            WHERE p.is_demo = 1 AND (p.user_id = ? OR p.user_id IS NULL OR p.user_id = '')
+            GROUP BY p.patient_id;
+            """, (valid_user_id,))
         else:
-            cursor.execute("SELECT * FROM patients WHERE is_demo = 1")
+            cursor.execute("""
+            SELECT p.*, COUNT(d.document_id) AS document_count
+            FROM patients p
+            LEFT JOIN documents d ON p.patient_id = d.patient_id
+            WHERE p.is_demo = 1
+            GROUP BY p.patient_id;
+            """)
+        rows = cursor.fetchall()
+
         try:
             from services.patient_store import patient_store
         except ImportError:
@@ -395,7 +440,23 @@ def seed_demo_patients(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
                 from backend.services.patient_store import patient_store
             except ImportError:
                 from ..services.patient_store import patient_store
-        return [patient_store._row_to_patient_dict(r) for r in rows]
+
+        patients_list = [patient_store._row_to_patient_dict(r) for r in rows]
+
+        # Sync demo patients and demo documents to DynamoDB if DynamoDB is active
+        try:
+            for p in patients_list:
+                patient_store._sync_patient_to_dynamo(p)
+
+            cursor.execute("SELECT * FROM documents WHERE document_id IN (?, ?)", (doc1_id, doc2_id))
+            d_rows = cursor.fetchall()
+            for dr in d_rows:
+                d_dict = patient_store._row_to_document_dict(dr)
+                patient_store._sync_document_to_dynamo(d_dict)
+        except Exception as sync_err:
+            logger.warning(f"Failed to sync demo data to DynamoDB: {sync_err}")
+
+        return patients_list
 
 def clear_demo_patients(user_id: Optional[str] = None):
     """Removes synthetic demo patients and their demo documents for the given user (or all if none specified)."""

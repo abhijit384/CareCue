@@ -298,6 +298,7 @@ def reset_password(req: ResetPasswordRequest):
 # ─── Demo Data Endpoints (Explicit User Confirmation Only) ───
 
 @app.post("/api/demo/load")
+@app.post("/demo/load")
 def load_demo_patients(user_id: Optional[str] = Depends(get_current_user_id)):
     """Explicitly loads synthetic demo patient records for the current user. Never called automatically."""
     patients = seed_demo_patients(user_id=user_id)
@@ -308,6 +309,7 @@ def load_demo_patients(user_id: Optional[str] = Depends(get_current_user_id)):
     }
 
 @app.post("/api/demo/clear")
+@app.post("/demo/clear")
 def clear_demo_data(user_id: Optional[str] = Depends(get_current_user_id)):
     """Removes all synthetic demonstration patients for the current user."""
     clear_demo_patients(user_id=user_id)
@@ -437,6 +439,7 @@ async def upload_document(
     file: UploadFile = File(...),
     patientId: Optional[str] = Form(None),
     documentType: Optional[str] = Form(None),
+    user_id: Optional[str] = Depends(get_current_user_id),
 ):
     """
     Real document upload and multi-stage extraction pipeline:
@@ -495,15 +498,37 @@ async def upload_document(
                 gemini_error_message = f"Gemini document analysis failed: {exc_msg}"
             logger.warning(f"[Upload] Gemini call failed ({gemini_status}) — document will be saved with extracted text only.")
 
-    # 4. Patient Name Identification (Extraction priority: structured_data -> text heuristics)
-    detected_name = structured_data.get("patient", {}).get("name") if structured_data else None
-    detected_dob = (structured_data.get("patient", {}).get("age") or structured_data.get("patient", {}).get("dob")) if structured_data else None
+    # 4. Patient Name Identification & Gemini Identity Verification
+    patient_info = (structured_data.get("patient") if isinstance(structured_data, dict) else {}) or {}
+    detected_name = patient_info.get("name") if isinstance(patient_info, dict) else None
+    detected_dob = (patient_info.get("age") or patient_info.get("dob")) if isinstance(patient_info, dict) else None
     confidence = 0.95 if detected_name else 0.0
+
+    target_patient = patient_store.get_patient(patientId) if patientId else None
+    target_patient_name = target_patient.get("name") if target_patient else None
+
+    # Use Gemini Identity Verification when available
+    ai_identity = None
+    if gemini_service.is_available() and extracted.full_text:
+        try:
+            existing_p = patient_store.list_patients(user_id=user_id) if user_id else patient_store.list_patients()
+            ai_identity = gemini_service.verify_patient_identity(
+                document_text=extracted.full_text,
+                target_patient_name=target_patient_name,
+                existing_patient_names=[p["name"] for p in existing_p]
+            )
+            if ai_identity.get("detectedPatientName"):
+                detected_name = ai_identity.get("detectedPatientName")
+                confidence = ai_identity.get("confidence", 0.95)
+            if not detected_dob and ai_identity.get("detectedAge"):
+                detected_dob = ai_identity.get("detectedAge")
+        except Exception as ai_id_err:
+            logger.warning(f"AI identity verification notice: {ai_id_err}")
 
     if not detected_name:
         heuristics = patient_service.extract_patient_info_from_text(extracted.full_text)
         detected_name = heuristics.get("patientName")
-        detected_dob = heuristics.get("dateOfBirth")
+        detected_dob = detected_dob or heuristics.get("dateOfBirth")
         confidence = heuristics.get("confidence", 0.0)
 
     # Check match against target patient if patientId provided, or globally across existing profiles
@@ -514,10 +539,20 @@ async def upload_document(
         match_result = patient_service.match_patient(
             extracted_name=detected_name,
             extracted_dob=detected_dob,
-            target_patient_id=patientId
+            target_patient_id=patientId,
+            user_id=user_id,
         )
+        # If AI identity verification detected an explicit mismatch, enforce DIFFERENT_PATIENT
+        if ai_identity and ai_identity.get("isTargetMatch") is False:
+            match_result["isTargetMatch"] = False
+            match_result["matchType"] = "DIFFERENT_PATIENT"
+            if ai_identity.get("reasoning"):
+                match_result["message"] = ai_identity["reasoning"]
+
         # Only attach document directly if exact match or no conflicting name in document
-        if match_result.get("isTargetMatch") is True or match_result.get("matchType") in ("EXACT_NAME_MATCH", "NO_MATCH"):
+        if match_result.get("isTargetMatch") is True or match_result.get("matchType") == "EXACT_NAME_MATCH":
+            effective_patient_id = patientId
+        elif match_result.get("matchType") == "NO_MATCH":
             effective_patient_id = patientId
         else:
             # Mismatched patient document: keep unattached until explicitly assigned
@@ -527,7 +562,8 @@ async def upload_document(
         match_result = patient_service.match_patient(
             extracted_name=detected_name,
             extracted_dob=detected_dob,
-            target_patient_id=None
+            target_patient_id=None,
+            user_id=user_id,
         )
         # Leave unattached until user chooses whether to link to existing patient or create a new patient
         effective_patient_id = None
@@ -545,6 +581,7 @@ async def upload_document(
     doc_record = {
         "documentId": doc_id,
         "patientId": effective_patient_id,
+        "userId": user_id,
         "originalFileName": file_name,
         "displayName": os.path.splitext(file_name)[0].replace("_", " ").title(),
         "documentType": structured_data.get("documentType", "OTHER") if structured_data else "OTHER",
@@ -734,7 +771,9 @@ def attach_document_to_patient(patient_id: str, req: AttachDocumentRequest, user
         raise HTTPException(status_code=404, detail="Document not found")
 
     # Detect extracted name from structured data
-    doc_patient_name = doc.get("structuredData", {}).get("patient", {}).get("name")
+    s_data = doc.get("structuredData") if isinstance(doc, dict) else {}
+    p_info = (s_data.get("patient") if isinstance(s_data, dict) else {}) or {}
+    doc_patient_name = p_info.get("name") if isinstance(p_info, dict) else None
     if doc_patient_name:
         match = patient_service.match_patient(
             extracted_name=doc_patient_name,

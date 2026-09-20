@@ -10,7 +10,7 @@ interface DocumentTypeBadgeProps {
 }
 
 export function DocumentTypeBadge({ type, className, showIcon = true }: DocumentTypeBadgeProps) {
-  const norm = type.toLowerCase();
+  const norm = (type || 'other').toLowerCase();
 
   switch (norm) {
     case 'lab_report':

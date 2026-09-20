@@ -49,10 +49,16 @@ def test_session_lifecycle():
 
 
 def test_upload_url_generation():
+    session_id = "cc-sess-test123"
+    session_handler({
+        "httpMethod": "POST",
+        "body": json.dumps({"sessionId": session_id}),
+    })
     event = {
         "httpMethod": "POST",
+        "path": "/documents/upload-url",
         "body": json.dumps({
-            "sessionId": "cc-sess-test123",
+            "sessionId": session_id,
             "fileName": "CBC_Report.pdf",
             "contentType": "application/pdf",
         }),

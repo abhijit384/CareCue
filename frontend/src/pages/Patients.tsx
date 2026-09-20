@@ -112,8 +112,12 @@ export function Patients() {
 
   // Always sync from AuthContext when authPatients changes
   useEffect(() => {
-    if (authPatients && authPatients.length > 0) {
+    if (authPatients) {
       setPatients(authPatients);
+      if (selectedPatient) {
+        const freshSelected = authPatients.find(p => p.patientId === selectedPatient.patientId);
+        if (freshSelected) setSelectedPatient(freshSelected);
+      }
     }
   }, [authPatients]);
 
@@ -406,7 +410,7 @@ export function Patients() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-accent-teal/15 text-accent-teal-dark font-bold text-sm flex items-center justify-center">
-                          {p.name.charAt(0)}
+                          {(p.name || 'P').charAt(0)}
                         </div>
                         <div>
                           <h3 className="text-sm font-bold text-text-primary group-hover:text-accent-teal transition-colors">
@@ -472,7 +476,7 @@ export function Patients() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-2xl bg-accent-teal/15 text-accent-teal-dark font-bold text-xl flex items-center justify-center shadow-xs">
-                  {selectedPatient.name.charAt(0)}
+                  {(selectedPatient.name || 'P').charAt(0)}
                 </div>
                 <div>
                   <h2 className="text-xl sm:text-2xl font-bold text-text-primary tracking-tight">
@@ -825,9 +829,9 @@ export function Patients() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-3">
                       <div className="flex justify-between border-b border-border-subtle pb-1"><span className="text-text-muted">Blood Group:</span><span className="font-bold">{selectedPatient.bloodGroup || 'Not provided'}</span></div>
-                      <div className="flex justify-between border-b border-border-subtle pb-1"><span className="text-text-muted">Severe Allergies:</span><span className="font-bold">{selectedPatient.severeAllergies?.join(', ') || 'None'}</span></div>
-                      <div className="flex justify-between border-b border-border-subtle pb-1"><span className="text-text-muted">Medications:</span><span className="font-bold">{selectedPatient.currentMedications?.join(', ') || 'None'}</span></div>
-                      <div className="flex justify-between border-b border-border-subtle pb-1"><span className="text-text-muted">Conditions:</span><span className="font-bold">{selectedPatient.importantConditions?.join(', ') || 'None'}</span></div>
+                      <div className="flex justify-between border-b border-border-subtle pb-1"><span className="text-text-muted">Severe Allergies:</span><span className="font-bold">{formatList(selectedPatient.severeAllergies)}</span></div>
+                      <div className="flex justify-between border-b border-border-subtle pb-1"><span className="text-text-muted">Medications:</span><span className="font-bold">{formatList(selectedPatient.currentMedications)}</span></div>
+                      <div className="flex justify-between border-b border-border-subtle pb-1"><span className="text-text-muted">Conditions:</span><span className="font-bold">{formatList(selectedPatient.importantConditions)}</span></div>
                     </div>
                     <div className="p-4 rounded-xl bg-bg-surface-secondary border border-border-subtle">
                       <h4 className="font-bold text-text-muted mb-2 uppercase text-[10px]">Primary Emergency Contact</h4>

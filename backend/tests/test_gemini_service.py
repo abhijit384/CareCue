@@ -100,3 +100,22 @@ def test_rate_limit_429_circuit_breaking():
         resp = service.verify_finding(payload, session_id=session_id)
         assert resp.status == VerificationOutcome.VERIFICATION_UNAVAILABLE
         assert "quota" in resp.reasoning_summary.lower() or "limit" in resp.reasoning_summary.lower()
+
+
+def test_verify_patient_identity():
+    service = GeminiVerificationService()
+    mock_res = MagicMock()
+    mock_res.text = '{"detectedPatientName": "Alamgir Mandal", "detectedAge": "45", "detectedGender": "Male", "isTargetMatch": false, "matchType": "DIFFERENT_PATIENT", "confidence": 0.98, "reasoning": "Document belongs to Alamgir Mandal, which differs from target Abhijit"}'
+    
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = mock_res
+
+    with patch.object(service, "_get_genai_client", return_value=mock_client):
+        result = service.verify_patient_identity(
+            document_text="Prescription for Alamgir Mandal, Age 45",
+            target_patient_name="Abhijit"
+        )
+        assert result["detectedPatientName"] == "Alamgir Mandal"
+        assert result["isTargetMatch"] is False
+        assert result["matchType"] == "DIFFERENT_PATIENT"
+

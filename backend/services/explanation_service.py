@@ -46,6 +46,9 @@ class ExplanationService:
             "doctorSummary": f"Consultation and evaluation recorded for {finding_title}. Please discuss your overall symptoms and care plan with your physician.",
             "medicationsSummary": "Take all documented medications strictly according to the dosages, timings, and instructions specified in your prescription.",
             "labSummary": f"Laboratory observation: {finding_title}{val_str}{ref_str}. Target intervals provide benchmarks for routine clinical monitoring.",
+            "hardTermsExplained": [
+                {"term": finding_title, "simpleExplanation": f"Clinical parameter documented in health records representing {finding_title}."}
+            ],
             "nextVisitSummary": "Schedule your next follow-up appointment as advised by your physician, and bring recent lab reports to the visit.",
             "whyItAppears": f"Clinicians document {finding_title} as part of systematic health evaluation to guide follow-up care and align on therapeutic goals.",
             "whatThisMeans": "Clinical reference intervals serve as target benchmarks. Your doctor evaluates this observation alongside your overall health history.",

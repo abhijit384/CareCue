@@ -118,15 +118,20 @@ export type ExplanationLevel = 'standard' | 'beginner';
 
 export interface ExplanationResult {
   findingTitle: string;
-  level: ExplanationLevel;
+  level?: ExplanationLevel;
   explainedSimply: string;
-  whyItAppears: string;
-  whatToDiscuss: string[];
-  verbatimValue: string;
-  verbatimRange: string;
+  whyItAppears?: string;
+  whatToDiscuss?: string[];
+  verbatimValue?: string;
+  verbatimRange?: string;
   sourceQuote?: string;
-  disclaimer: string;
+  disclaimer?: string;
   safetyAudited?: boolean;
+  doctorSummary?: string;
+  medicationsSummary?: string;
+  labSummary?: string;
+  hardTermsExplained?: Array<{ term: string; simpleExplanation: string }>;
+  nextVisitSummary?: string;
 }
 
 export type EmergencyState = 'URGENT_ATTENTION' | 'SAFETY_GUIDANCE' | 'NOT_ENOUGH_INFORMATION';

@@ -45,8 +45,12 @@ export function ExplainModal({
         .then(async res => {
           if (language !== 'en') {
             res.explainedSimply = await translationService.translateText(res.explainedSimply, language);
-            res.whyItAppears = await translationService.translateText(res.whyItAppears, language);
-            res.whatToDiscuss = await Promise.all(res.whatToDiscuss.map(q => translationService.translateText(q, language)));
+            if (res.whyItAppears) {
+              res.whyItAppears = await translationService.translateText(res.whyItAppears, language);
+            }
+            if (res.whatToDiscuss) {
+              res.whatToDiscuss = await Promise.all(res.whatToDiscuss.map(q => translationService.translateText(q, language)));
+            }
           }
           setExplanation(res);
           setLoading(false);
@@ -195,7 +199,7 @@ export function ExplainModal({
                     <span>What to Discuss with Your Doctor</span>
                   </div>
                   <ul className="space-y-2 text-xs text-text-secondary">
-                    {explanation.whatToDiscuss.map((q, idx) => (
+                    {(explanation.whatToDiscuss || []).map((q, idx) => (
                       <li key={idx} className="flex items-start gap-2 p-2.5 rounded-lg bg-bg-surface-secondary/60 border border-border-subtle/60">
                         <span className="w-4 h-4 rounded-full bg-accent-teal/15 text-accent-teal-dark flex items-center justify-center shrink-0 text-[10px] font-bold mt-0.5">
                           {idx + 1}

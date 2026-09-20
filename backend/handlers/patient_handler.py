@@ -82,7 +82,7 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
 
                 if http_method == "GET":
                     docs = patient_store.get_patient_documents(patient_id)
-                    return _json_response(200, {"patientId": patient_id, "documents": docs})
+                    return _json_response(200, docs)
                 elif http_method == "POST":
                     return handle_add_document(event, patient_id)
 
@@ -282,7 +282,9 @@ def handle_match_patient(event: Dict[str, Any]) -> Dict[str, Any]:
     name = payload.get("extractedName")
     dob = payload.get("dateOfBirth")
     target_id = payload.get("targetPatientId")
-    match_result = patient_service.match_patient(name, extracted_dob=dob, target_patient_id=target_id)
+    headers = event.get("headers", {}) or {}
+    user_id = headers.get("X-User-Id") or headers.get("x-user-id")
+    match_result = patient_service.match_patient(name, extracted_dob=dob, target_patient_id=target_id, user_id=user_id)
     return _json_response(200, match_result)
 
 

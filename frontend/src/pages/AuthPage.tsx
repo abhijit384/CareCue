@@ -133,11 +133,12 @@ export function AuthPage() {
       });
 
       if (res.success || res.status === 'OTP_SENT') {
-        showToast('Verification code sent to your email!', 'success');
+        showToast('Verification code sent to your email! Please check your inbox.', 'success');
         setMode('otp');
         setResendSeconds(600);
         setResendCooldown(60);
         setCanResend(false);
+        setOtpCode(['', '', '', '', '', '']);
       } else {
         setErrorBanner(res.message || 'Unable to create account.');
       }
@@ -235,7 +236,7 @@ export function AuthPage() {
         purpose: mode === 'forgot_otp' ? 'reset' : 'signup',
       });
       if (res.success) {
-        showToast('A new 6-digit code has been sent.', 'success');
+        showToast('A new 6-digit verification code was sent to your email.', 'success');
         setResendSeconds(600);
         setResendCooldown(60);
         setCanResend(false);
@@ -262,11 +263,12 @@ export function AuthPage() {
     try {
       const res = await authClient.forgotPassword({ email: email.trim().toLowerCase() });
       if (res.success) {
-        showToast('Password reset code sent to your email.', 'info');
+        showToast('Password reset code sent to your email! Please check your inbox.', 'info');
         setMode('forgot_otp');
         setResendSeconds(600);
         setResendCooldown(60);
         setCanResend(false);
+        setOtpCode(['', '', '', '', '', '']);
       } else {
         setErrorBanner(res.message || 'Could not process request.');
       }

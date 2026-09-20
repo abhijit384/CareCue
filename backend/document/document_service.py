@@ -74,6 +74,17 @@ class DocumentService:
                             extraction_method="vision",
                             metadata=extracted.metadata,
                         )
+                # If extracted PDF text is minimal (< 40 chars) or raw PDF bytes, use Gemini Multimodal PDF Vision OCR
+                clean_text = extracted.full_text.strip()
+                if len(clean_text) < 40 or clean_text.startswith("%PDF") or "binary/scanned" in clean_text.lower():
+                    try:
+                        logger.info("PDF text extraction minimal or raw bytes — running Gemini Multimodal PDF Vision OCR...")
+                        vision_doc = self.image_extractor.extract_from_bytes(file_bytes, "application/pdf")
+                        if vision_doc and len(vision_doc.full_text.strip()) > 10:
+                            return vision_doc
+                    except Exception as v_err:
+                        logger.warning(f"Gemini PDF vision fallback error: {v_err}")
+
                 return extracted
             else:
                 # Image file (PNG, JPG, JPEG)

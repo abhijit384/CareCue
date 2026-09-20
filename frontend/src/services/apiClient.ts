@@ -128,15 +128,14 @@ async function readResponseBody(response: Response): Promise<unknown> {
 }
 
 function joinUrl(endpoint: string): string {
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  let cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   if (cleanEndpoint.startsWith(API_BASE_URL + '/') || cleanEndpoint === API_BASE_URL) {
     return cleanEndpoint;
   }
-  let path = cleanEndpoint;
-  if (API_BASE_URL === '/api' && path.startsWith('/api/')) {
-    path = path.slice(4);
+  if (cleanEndpoint.startsWith('/api/')) {
+    cleanEndpoint = cleanEndpoint.slice(4);
   }
-  return `${API_BASE_URL}${path}`;
+  return `${API_BASE_URL}${cleanEndpoint}`;
 }
 
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
@@ -302,6 +301,13 @@ export const liveApi = {
       });
     },
 
+    async match(extractedName: string, extractedDob?: string, targetPatientId?: string): Promise<any> {
+      return request<any>('/patients/match', {
+        method: 'POST',
+        body: JSON.stringify({ extractedName, extractedDob, targetPatientId }),
+      });
+    },
+
     async attachDocument(patientId: string, documentId: string, overrideMismatch: boolean = false): Promise<any> {
       return request<any>(`/patients/${patientId}/attach-document`, {
         method: 'POST',
@@ -310,7 +316,10 @@ export const liveApi = {
     },
 
     async getDocuments(patientId: string): Promise<any[]> {
-      return request<any[]>(`/patients/${patientId}/documents`);
+      const res = await request<any>(`/patients/${patientId}/documents`);
+      if (Array.isArray(res)) return res;
+      if (res && Array.isArray(res.documents)) return res.documents;
+      return [];
     },
 
     async delete(patientId: string): Promise<any> {

@@ -64,9 +64,9 @@ def _response(status_code: int, body: Any) -> Dict[str, Any]:
     }
 
 
-def parse_multipart_or_json(event: Dict[str, Any]) -> Tuple[bytes, str, str, Optional[str], Optional[str]]:
+def parse_multipart_or_json(event: Dict[str, Any]) -> Tuple[bytes, str, str, Optional[str], Optional[str], Optional[str]]:
     """
-    Parses file bytes, file_name, mime_type, patient_id, and document_type from
+    Parses file bytes, file_name, mime_type, patient_id, document_type, and user_id from
     either multipart/form-data or JSON payloads in API Gateway events.
     """
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
@@ -83,6 +83,7 @@ def parse_multipart_or_json(event: Dict[str, Any]) -> Tuple[bytes, str, str, Opt
     mime_type = "application/pdf"
     patient_id = None
     document_type = None
+    user_id = None
 
     if "multipart/form-data" in content_type:
         try:
@@ -103,6 +104,8 @@ def parse_multipart_or_json(event: Dict[str, Any]) -> Tuple[bytes, str, str, Opt
                     patient_id = (part.get_payload(decode=True) or b"").decode("utf-8", errors="replace").strip()
                 elif name == "documentType":
                     document_type = (part.get_payload(decode=True) or b"").decode("utf-8", errors="replace").strip()
+                elif name in ("userId", "user_id"):
+                    user_id = (part.get_payload(decode=True) or b"").decode("utf-8", errors="replace").strip()
         except Exception as e:
             logger.warning(f"Multipart parse error: {e}")
 
@@ -111,6 +114,7 @@ def parse_multipart_or_json(event: Dict[str, Any]) -> Tuple[bytes, str, str, Opt
             data = json.loads(body_bytes.decode("utf-8"))
             patient_id = data.get("patientId")
             document_type = data.get("documentType")
+            user_id = data.get("userId") or data.get("user_id")
             file_name = data.get("fileName", "uploaded_report.pdf")
             mime_type = data.get("fileType", data.get("mimeType", "application/pdf"))
             if "fileBytesBase64" in data:
@@ -128,7 +132,19 @@ def parse_multipart_or_json(event: Dict[str, Any]) -> Tuple[bytes, str, str, Opt
     elif file_name.lower().endswith(".png"):
         mime_type = "image/png"
 
-    return file_bytes, file_name, mime_type, patient_id, document_type
+    return file_bytes, file_name, mime_type, patient_id, document_type, user_id
+
+
+def _safe_get_dict(obj: Any, *keys: str, default: Any = None) -> Any:
+    """Safely traverses nested dictionaries even if intermediate keys contain None."""
+    curr = obj
+    for k in keys:
+        if not isinstance(curr, dict):
+            return default
+        curr = curr.get(k)
+        if curr is None:
+            return default
+    return curr if curr is not None else default
 
 
 def handle_document_upload(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -139,8 +155,11 @@ def handle_document_upload(event: Dict[str, Any]) -> Dict[str, Any]:
     3. Detects patient identity & runs patient matching.
     4. Persists record in SQLite database and S3.
     """
-    file_bytes, file_name, content_type, patientId, documentType = parse_multipart_or_json(event)
+    file_bytes, file_name, content_type, patientId, documentType, body_user_id = parse_multipart_or_json(event)
     file_size = len(file_bytes)
+
+    headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
+    user_id = headers.get("x-user-id") or headers.get("user-id") or body_user_id
 
     if not file_bytes:
         # Fallback synthetic text extraction if no binary payload was received
@@ -201,6 +220,9 @@ def handle_document_upload(event: Dict[str, Any]) -> Dict[str, Any]:
                 gemini_status = "PARTIAL_SUCCESS"
                 gemini_error_message = f"Gemini document analysis notice: {exc_msg}"
 
+    if not isinstance(structured_data, dict):
+        structured_data = {}
+
     # Fallback / merge deterministic clinical parser if structured_data is empty or lacking key fields
     if not structured_data or not any(structured_data.get(k) for k in ("medications", "labResults", "patient")):
         try:
@@ -214,16 +236,38 @@ def handle_document_upload(event: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as p_err:
             logger.warning(f"Clinical fallback parser notice: {p_err}")
 
-    # 4. Patient Name Identification
-    detected_name = structured_data.get("patient", {}).get("name") if structured_data else None
-    detected_dob = (structured_data.get("patient", {}).get("age") or structured_data.get("patient", {}).get("dob")) if structured_data else None
+    # 4. Patient Name Identification & Gemini Identity Verification
+    detected_name = _safe_get_dict(structured_data, "patient", "name")
+    detected_dob = _safe_get_dict(structured_data, "patient", "age") or _safe_get_dict(structured_data, "patient", "dob")
     confidence = 0.95 if detected_name else 0.0
+
+    target_patient = patient_store.get_patient(patientId) if patientId else None
+    target_patient_name = target_patient.get("name") if isinstance(target_patient, dict) else None
+
+    # Use Gemini Identity Verification when available
+    ai_identity = None
+    if gemini_service.is_available() and extracted.full_text:
+        try:
+            existing_p = patient_store.list_patients(user_id=user_id) if user_id else patient_store.list_patients()
+            ai_names = [p.get("name") for p in existing_p if isinstance(p, dict) and p.get("name")]
+            ai_identity = gemini_service.verify_patient_identity(
+                document_text=extracted.full_text,
+                target_patient_name=target_patient_name,
+                existing_patient_names=ai_names
+            )
+            if isinstance(ai_identity, dict) and ai_identity.get("detectedPatientName"):
+                detected_name = ai_identity.get("detectedPatientName")
+                confidence = ai_identity.get("confidence", 0.95)
+            if isinstance(ai_identity, dict) and not detected_dob and ai_identity.get("detectedAge"):
+                detected_dob = ai_identity.get("detectedAge")
+        except Exception as ai_id_err:
+            logger.warning(f"AI identity verification notice: {ai_id_err}")
 
     if not detected_name:
         heuristics = patient_service.extract_patient_info_from_text(extracted.full_text)
-        detected_name = heuristics.get("patientName")
-        detected_dob = heuristics.get("dateOfBirth")
-        confidence = heuristics.get("confidence", 0.0)
+        detected_name = _safe_get_dict(heuristics, "patientName")
+        detected_dob = detected_dob or _safe_get_dict(heuristics, "dateOfBirth")
+        confidence = _safe_get_dict(heuristics, "confidence", default=0.0)
 
     match_result = None
     effective_patient_id = None
@@ -232,19 +276,43 @@ def handle_document_upload(event: Dict[str, Any]) -> Dict[str, Any]:
         match_result = patient_service.match_patient(
             extracted_name=detected_name,
             extracted_dob=detected_dob,
-            target_patient_id=patientId
+            target_patient_id=patientId,
+            user_id=user_id,
         )
-        if match_result.get("isTargetMatch") is True or match_result.get("matchType") in ("EXACT_NAME_MATCH", "NO_MATCH"):
+        if isinstance(ai_identity, dict) and ai_identity.get("isTargetMatch") is False:
+            if isinstance(match_result, dict):
+                match_result["isTargetMatch"] = False
+                match_result["matchType"] = "DIFFERENT_PATIENT"
+                if ai_identity.get("reasoning"):
+                    match_result["message"] = ai_identity["reasoning"]
+
+        match_type = _safe_get_dict(match_result, "matchType")
+        is_target_match = _safe_get_dict(match_result, "isTargetMatch")
+
+        if is_target_match is True or match_type == "EXACT_NAME_MATCH":
+            effective_patient_id = patientId
+        elif match_type == "NO_MATCH":
             effective_patient_id = patientId
         else:
             effective_patient_id = None
+            logger.info(f"[Upload] Mismatch detected: extracted '{detected_name}' vs target '{patientId}'. Document left unattached.")
     elif detected_name:
         match_result = patient_service.match_patient(
             extracted_name=detected_name,
             extracted_dob=detected_dob,
-            target_patient_id=None
+            target_patient_id=None,
+            user_id=user_id,
         )
-        effective_patient_id = None
+        effective_patient_id = _safe_get_dict(match_result, "matchedPatient", "patientId")
+
+    # Guarantee document is attached to a patient profile for logged-in user
+    if not effective_patient_id and user_id:
+        user_patients = patient_store.list_patients(user_id=user_id)
+        if user_patients and isinstance(user_patients[0], dict):
+            effective_patient_id = user_patients[0].get("patientId")
+        else:
+            new_p = patient_store.create_patient({"name": detected_name or "Patient", "userId": user_id, "relationship": "Self"})
+            effective_patient_id = new_p.get("patientId") if isinstance(new_p, dict) else None
 
     # 5. Persist Document in SQLite
     processing_status = "ANALYZED" if gemini_status == "SUCCESS" else "EXTRACTED"
@@ -252,17 +320,18 @@ def handle_document_upload(event: Dict[str, Any]) -> Dict[str, Any]:
     doc_record = {
         "documentId": doc_id,
         "patientId": effective_patient_id,
+        "userId": user_id,
         "originalFileName": file_name,
         "displayName": os.path.splitext(file_name)[0].replace("_", " ").title(),
-        "documentType": structured_data.get("documentType", "OTHER") if structured_data else "OTHER",
+        "documentType": _safe_get_dict(structured_data, "documentType", default="OTHER"),
         "mimeType": content_type,
         "fileSizeBytes": file_size,
         "storagePath": storage_path,
         "extractedText": extracted.full_text,
         "extractionMethod": extracted.extraction_method,
         "pages": [{"page": p.page_number, "text": p.text} for p in extracted.pages],
-        "structuredData": structured_data or {},
-        "sourceEvidence": (structured_data.get("sourceEvidence", []) if structured_data else []),
+        "structuredData": structured_data if isinstance(structured_data, dict) else {},
+        "sourceEvidence": (_safe_get_dict(structured_data, "sourceEvidence", default=[])),
         "processingStatus": processing_status,
     }
 
