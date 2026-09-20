@@ -201,18 +201,18 @@ class PatientStore:
         seed_demo_patients()
 
     def list_patients(self, search_query: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Returns patients belonging to user_id only (when provided), with attached document counts."""
-        # Sync all patient records from DynamoDB if present
+        """Returns patients belonging to user_id (and unassigned/demo patients), with attached document counts."""
+        # Sync all patient and document records from DynamoDB if present
         table = get_dynamo_table()
         if table:
             try:
-                res = table.scan(
-                    FilterExpression="entityType = :etype",
-                    ExpressionAttributeValues={":etype": "patient"},
-                    Limit=100
-                )
+                res = table.scan(Limit=200)
                 for item in res.get("Items", []):
-                    self._restore_patient_from_dynamo(item)
+                    etype = item.get("entityType")
+                    if etype == "patient":
+                        self._restore_patient_from_dynamo(item)
+                    elif etype == "document":
+                        self._restore_document_from_dynamo(item)
             except Exception as e:
                 logger.debug(f"DynamoDB scan patients notice: {e}")
 
@@ -222,10 +222,8 @@ class PatientStore:
             params = []
 
             if user_id:
-                conditions.append("p.user_id = ?")
+                conditions.append("(p.user_id = ? OR p.user_id IS NULL OR p.user_id = '' OR p.is_demo = 1)")
                 params.append(user_id)
-            else:
-                conditions.append("(p.user_id IS NULL OR p.user_id = '')")
 
             if search_query:
                 conditions.append("(p.name LIKE ? OR p.patient_id LIKE ?)")
@@ -885,6 +883,10 @@ class PatientStore:
             if parsed.get("medications") or parsed.get("labResults") or parsed.get("findings"):
                 structured = parsed
 
+        findings_count = len(structured.get("findings", [])) + len(structured.get("labResults", []))
+        summary_text = structured.get("summary") or (extracted_txt[:200] + "..." if len(extracted_txt) > 200 else extracted_txt) or "Clinical document analyzed."
+        status_text = "verified" if (structured.get("medications") or structured.get("labResults") or structured.get("findings")) else d.get("processing_status", "uploaded").lower()
+
         return {
             "documentId": d["document_id"],
             "patientId": d.get("patient_id"),
@@ -902,6 +904,12 @@ class PatientStore:
             "processingStatus": "ANALYZED" if structured.get("medications") or structured.get("findings") else d.get("processing_status", "UPLOADED"),
             "uploadedAt": d["uploaded_at"],
             "analyzedAt": d.get("analyzed_at"),
+            # Frontend compatibility fields
+            "createdAt": d["uploaded_at"],
+            "status": status_text,
+            "sourceReference": d["display_name"],
+            "findingsCount": findings_count,
+            "summary": summary_text,
         }
 
 patient_store = PatientStore()

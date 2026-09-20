@@ -170,13 +170,30 @@ export function Patients() {
         return;
       }
 
-      setDocuments(prev => [doc, ...prev]);
-      const updatedTl = await patientService.getTimeline(selectedPatient.patientId);
-      setTimeline(updatedTl);
+      if (doc && doc.documentId) {
+        try {
+          await patientService.attachDocument(selectedPatient.patientId, doc.documentId, true);
+        } catch (e) {
+          console.debug('Attach notice:', e);
+        }
+      }
+
+      const [freshDocs, freshTl, freshPatients] = await Promise.all([
+        patientService.getDocuments(selectedPatient.patientId),
+        patientService.getTimeline(selectedPatient.patientId),
+        patientService.list(),
+      ]);
+
+      setDocuments(freshDocs || [doc, ...documents]);
+      setTimeline(freshTl || []);
+      setPatients(freshPatients || []);
+      const updatedP = (freshPatients || []).find(p => p.patientId === selectedPatient.patientId);
+      if (updatedP) setSelectedPatient(updatedP);
+
       setShowUploadDocModal(false);
       setUploadFile(null);
+      showToast('Document analyzed by Gemini and added to patient records', 'success');
       await refreshActivePatient();
-      patientService.list().then(setPatients);
     } catch (err: any) {
       setUploadError(err.message || 'Upload failed');
     } finally {
