@@ -280,50 +280,97 @@ class GeminiVerificationService:
             logger.error(f"Failed to instantiate Google GenAI Client: {exc}\n{traceback.format_exc()}")
             return None
 
+    def _call_gemini_rest_api(self, prompt: str, system_instruction: Optional[str] = None, json_mode: bool = False) -> str:
+        api_key = self._get_api_key()
+        if not api_key:
+            raise RuntimeError("Gemini API key could not be resolved.")
+
+        models_to_try = [self.model_id] + [m for m in FALLBACK_GEMINI_MODELS if m != self.model_id]
+        last_err = None
+
+        for m in models_to_try:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+                contents = []
+                if system_instruction:
+                    contents.append({"role": "user", "parts": [{"text": f"System Instruction: {system_instruction}"}]})
+                    contents.append({"role": "model", "parts": [{"text": "Understood. I will strictly follow these system instructions."}]})
+                
+                contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+                gen_config = {"temperature": 0.0}
+                if json_mode:
+                    gen_config["responseMimeType"] = "application/json"
+
+                payload = {
+                    "contents": contents,
+                    "generationConfig": gen_config
+                }
+
+                import requests
+                res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=25)
+                if res.status_code == 200:
+                    resp_data = res.json()
+                    candidates = resp_data.get("candidates", [])
+                    if candidates and candidates[0].get("content", {}).get("parts"):
+                        text_out = candidates[0]["content"]["parts"][0].get("text", "")
+                        if text_out:
+                            logger.info(f"[Gemini REST] Successfully called model {m}")
+                            return text_out
+                else:
+                    logger.warning(f"[Gemini REST] Model {m} returned HTTP {res.status_code}: {res.text[:200]}")
+                    last_err = f"HTTP {res.status_code}: {res.text[:200]}"
+            except Exception as e:
+                logger.warning(f"[Gemini REST] Exception for model {m}: {e}")
+                last_err = str(e)
+
+        raise RuntimeError(f"All Gemini REST models failed. Last error: {last_err}")
+
     def _call_interactions_api(self, prompt: str, system_instruction: Optional[str] = None, json_mode: bool = False) -> str:
         """
-        Executes a clinical prompt using Google Gemini API with automatic model failover.
+        Executes a clinical prompt using Google Gemini API with automatic model failover and REST fallback.
         """
         client = self._get_genai_client()
         if not client:
-            raise RuntimeError("Gemini client unavailable. Check GEMINI_API_KEY or Secrets Manager configuration.")
+            logger.info("[GeminiService] SDK Client unavailable, using direct REST API fallback...")
+            return self._call_gemini_rest_api(prompt, system_instruction=system_instruction, json_mode=json_mode)
 
-        from google.genai import types
+        try:
+            from google.genai import types
 
-        self.last_request_timestamp = datetime.now(timezone.utc).isoformat()
-        
-        # Build candidate list starting with active model
-        candidate_models = [self.model_id] + [m for m in FALLBACK_GEMINI_MODELS if m != self.model_id]
-        last_error = None
-        
-        config_kwargs = {"temperature": 0.0}
-        if system_instruction:
-            config_kwargs["system_instruction"] = system_instruction
-        if json_mode:
-            config_kwargs["response_mime_type"] = "application/json"
+            self.last_request_timestamp = datetime.now(timezone.utc).isoformat()
+            
+            candidate_models = [self.model_id] + [m for m in FALLBACK_GEMINI_MODELS if m != self.model_id]
+            last_error = None
+            
+            config_kwargs = {"temperature": 0.0}
+            if system_instruction:
+                config_kwargs["system_instruction"] = system_instruction
+            if json_mode:
+                config_kwargs["response_mime_type"] = "application/json"
 
-        config = types.GenerateContentConfig(**config_kwargs)
+            config = types.GenerateContentConfig(**config_kwargs)
 
-        for model in candidate_models:
-            try:
-                res = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=config,
-                )
-                return res.text or ""
-            except Exception as e:
-                last_error = e
-                msg = str(e)
-                logger.warning(f"Gemini call with model '{model}' failed: {msg[:120]}. Trying next candidate...")
-                continue
-                
-        # If all candidates failed, report quota or last error
-        msg = str(last_error) if last_error else "All Gemini candidate models failed"
-        is_quota = any(k in msg for k in ("429", "Rate limit", "ResourceExhausted", "RESOURCE_EXHAUSTED", "quota", "Quota exceeded", "TemporaryError"))
-        if is_quota:
-            raise RuntimeError(f"Gemini quota exceeded: {msg}") from last_error
-        raise last_error or RuntimeError(msg)
+            for model in candidate_models:
+                try:
+                    res = client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=config,
+                    )
+                    return res.text or ""
+                except Exception as e:
+                    last_error = e
+                    msg = str(e)
+                    logger.warning(f"Gemini call with model '{model}' failed: {msg[:120]}. Trying next candidate...")
+                    continue
+                    
+            if last_error:
+                logger.warning(f"GenAI SDK calls failed ({last_error}). Trying direct REST API fallback...")
+                return self._call_gemini_rest_api(prompt, system_instruction=system_instruction, json_mode=json_mode)
+        except Exception as exc:
+            logger.warning(f"GenAI SDK execution exception ({exc}). Using REST API fallback...")
+            return self._call_gemini_rest_api(prompt, system_instruction=system_instruction, json_mode=json_mode)
 
     def _generate_content_with_fallback(self, client, contents, **kwargs):
         """Generates multimodal content with candidate model failover."""
@@ -345,26 +392,62 @@ class GeminiVerificationService:
     # ─── 1. Document Vision OCR ───
 
     def extract_text_from_image(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
-        """Transcribes medical text from an image or scanned document page using Gemini Vision."""
-        client = self._get_genai_client()
-        if not client:
-            raise RuntimeError("Gemini client unavailable. Check GEMINI_API_KEY configuration.")
-
-        from google.genai import types
+        """Transcribes medical text from an image or scanned document page using Gemini Vision (SDK or REST)."""
         prompt = (
             "Transcribe and extract ALL medical and clinical text from this document image accurately and verbatim. "
             "Preserve headers, patient names, dates, medication names, dosages, frequencies, test names, observed values, "
             "reference ranges, and doctor notes exactly as written. Do not summarize, do not hallucinate, and do not provide diagnostic advice."
         )
 
-        response = self._generate_content_with_fallback(
-            client,
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                prompt
-            ]
-        )
-        return response.text or ""
+        client = self._get_genai_client()
+        if client:
+            try:
+                from google.genai import types
+                response = self._generate_content_with_fallback(
+                    client,
+                    contents=[
+                        types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                        prompt
+                    ]
+                )
+                return response.text or ""
+            except Exception as e:
+                logger.warning(f"GenAI SDK vision extraction failed ({e}). Trying direct REST API...")
+
+        # Direct REST API Vision OCR Fallback
+        import base64
+        b64_str = base64.b64encode(image_bytes).decode("utf-8")
+        api_key = self._get_api_key()
+        if not api_key:
+            raise RuntimeError("Gemini API key unavailable for OCR.")
+
+        models_to_try = [self.model_id] + [m for m in FALLBACK_GEMINI_MODELS if m != self.model_id]
+        for m in models_to_try:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+                payload = {
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt},
+                            {"inline_data": {"mime_type": mime_type, "data": b64_str}}
+                        ]
+                    }],
+                    "generationConfig": {"temperature": 0.0}
+                }
+                import requests
+                r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+                if r.status_code == 200:
+                    resp_data = r.json()
+                    candidates = resp_data.get("candidates", [])
+                    if candidates and candidates[0].get("content", {}).get("parts"):
+                        out_text = candidates[0]["content"]["parts"][0].get("text", "")
+                        if out_text:
+                            return out_text
+            except Exception as ex:
+                logger.warning(f"[Gemini REST OCR] Model {m} failed: {ex}")
+                continue
+
+        raise RuntimeError("Failed to extract text from image via Gemini Vision SDK or REST API.")
 
     # ─── 2. Structured Clinical Document Comprehension ───
 

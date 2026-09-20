@@ -289,13 +289,9 @@ def handle_document_upload(event: Dict[str, Any]) -> Dict[str, Any]:
         match_type = _safe_get_dict(match_result, "matchType")
         is_target_match = _safe_get_dict(match_result, "isTargetMatch")
 
-        if is_target_match is True or match_type == "EXACT_NAME_MATCH":
-            effective_patient_id = patientId
-        elif match_type == "NO_MATCH":
-            effective_patient_id = patientId
-        else:
-            effective_patient_id = None
-            logger.info(f"[Upload] Mismatch detected: extracted '{detected_name}' vs target '{patientId}'. Document left unattached.")
+        effective_patient_id = patientId
+        if not is_target_match and match_type == "DIFFERENT_PATIENT":
+            logger.info(f"[Upload] Mismatch notice: extracted '{detected_name}' vs target '{patientId}'. Document attached to selected patient {patientId}.")
     elif detected_name:
         match_result = patient_service.match_patient(
             extracted_name=detected_name,

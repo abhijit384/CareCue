@@ -75,10 +75,28 @@ class DirectDynamoTable:
         dynamo_key = {k: self._to_dynamo_val(v) for k, v in Key.items()}
         self.client.delete_item(TableName=self.table_name, Key=dynamo_key)
 
-    def scan(self) -> dict:
-        res = self.client.scan(TableName=self.table_name)
+    def scan(self, **kwargs) -> dict:
+        kwargs_to_pass = {"TableName": self.table_name}
+        if "FilterExpression" in kwargs:
+            kwargs_to_pass["FilterExpression"] = kwargs["FilterExpression"]
+        if "ExpressionAttributeValues" in kwargs:
+            raw_vals = kwargs["ExpressionAttributeValues"]
+            converted = {}
+            for k, v in raw_vals.items():
+                if isinstance(v, dict) and any(dk in v for dk in ("S", "N", "BOOL", "M", "L", "NULL")):
+                    converted[k] = v
+                else:
+                    converted[k] = self._to_dynamo_val(v)
+            kwargs_to_pass["ExpressionAttributeValues"] = converted
+        if "ExclusiveStartKey" in kwargs:
+            kwargs_to_pass["ExclusiveStartKey"] = kwargs["ExclusiveStartKey"]
+
+        res = self.client.scan(**kwargs_to_pass)
         items = res.get("Items", [])
-        return {"Items": [{k: self._from_dynamo_val(v) for k, v in item.items()} for item in items]}
+        ret = {"Items": [{k: self._from_dynamo_val(v) for k, v in item.items()} for item in items]}
+        if "LastEvaluatedKey" in res:
+            ret["LastEvaluatedKey"] = res["LastEvaluatedKey"]
+        return ret
 
 _dynamo_table = None
 
