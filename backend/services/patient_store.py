@@ -105,13 +105,13 @@ class PatientStore:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             if user_id:
+                ensure_user_exists(cursor, user_id, first_name=patient_name)
                 cursor.execute("SELECT user_id, first_name, last_name FROM users WHERE user_id = ?", (user_id,))
                 user_row = cursor.fetchone()
                 if user_row and relationship == "Self":
                     account_name = f"{user_row['first_name'] or ''} {user_row['last_name'] or ''}".strip()
-                    if account_name:
+                    if account_name and account_name != "User":
                         patient_name = account_name
-                    ensure_user_exists(cursor, user_id, first_name=patient_name)
 
             cursor.execute("""
             INSERT INTO patients (

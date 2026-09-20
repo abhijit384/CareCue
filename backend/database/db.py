@@ -159,11 +159,13 @@ def init_db(conn: Optional[sqlite3.Connection] = None):
             conn.close()
 
 def ensure_user_exists(cursor: sqlite3.Cursor, user_id: str, first_name: str = "User", last_name: str = ""):
+    if not user_id:
+        return
     now = datetime.now(timezone.utc).isoformat()
     cursor.execute("""
     INSERT OR IGNORE INTO users (user_id, first_name, last_name, email, password_hash, email_verified, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'placeholder_hash', 1, ?, ?);
-    """, (user_id, first_name, last_name, f"{user_id.lower()}@carecue.local", now, now))
+    """, (user_id, first_name or "User", last_name or "", f"{str(user_id).lower()}@carecue.local", now, now))
 
 def seed_demo_patients(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
