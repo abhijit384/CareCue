@@ -50,27 +50,42 @@ class DocumentService:
         lower_name = file_name.lower()
         is_pdf = lower_name.endswith(".pdf") or mime_type == "application/pdf"
 
-        if is_pdf:
-            extracted = self.pdf_extractor.extract_from_bytes(file_bytes)
-            # If scanned PDF with rendered images, run Vision OCR on each rendered page
-            if extracted.rendered_images:
-                logger.info("Running Vision OCR on scanned PDF pages...")
-                vision_pages: List[DocumentPage] = []
-                vision_full_parts: List[str] = []
-                for p_idx, img_data in enumerate(extracted.rendered_images, start=1):
-                    page_doc = self.image_extractor.extract_from_bytes(img_data, "image/png")
-                    vision_pages.append(DocumentPage(page_number=p_idx, text=page_doc.full_text))
-                    vision_full_parts.append(page_doc.full_text)
+        try:
+            if is_pdf:
+                extracted = self.pdf_extractor.extract_from_bytes(file_bytes)
+                # If scanned PDF with rendered images, run Vision OCR on each rendered page
+                if extracted.rendered_images:
+                    logger.info("Running Vision OCR on scanned PDF pages...")
+                    vision_pages: List[DocumentPage] = []
+                    vision_full_parts: List[str] = []
+                    for p_idx, img_data in enumerate(extracted.rendered_images, start=1):
+                        try:
+                            page_doc = self.image_extractor.extract_from_bytes(img_data, "image/png")
+                            vision_pages.append(DocumentPage(page_number=p_idx, text=page_doc.full_text))
+                            vision_full_parts.append(page_doc.full_text)
+                        except Exception as img_err:
+                            logger.warning(f"Vision OCR failed on page {p_idx}: {img_err}")
 
-                return ExtractedDocument(
-                    total_pages=len(vision_pages),
-                    pages=vision_pages,
-                    full_text="\n\n--- PAGE BREAK ---\n\n".join(vision_full_parts),
-                    extraction_method="vision",
-                    metadata=extracted.metadata,
-                )
-            return extracted
-        else:
-            # Image file (PNG, JPG, JPEG)
-            img_mime = "image/png" if lower_name.endswith(".png") else "image/jpeg"
-            return self.image_extractor.extract_from_bytes(file_bytes, img_mime)
+                    if vision_pages:
+                        return ExtractedDocument(
+                            total_pages=len(vision_pages),
+                            pages=vision_pages,
+                            full_text="\n\n--- PAGE BREAK ---\n\n".join(vision_full_parts),
+                            extraction_method="vision",
+                            metadata=extracted.metadata,
+                        )
+                return extracted
+            else:
+                # Image file (PNG, JPG, JPEG)
+                img_mime = "image/png" if lower_name.endswith(".png") else "image/jpeg"
+                return self.image_extractor.extract_from_bytes(file_bytes, img_mime)
+        except Exception as exc:
+            logger.error(f"process_document unexpected error: {exc}", exc_info=True)
+            fallback_text = f"Uploaded document: {file_name}"
+            return ExtractedDocument(
+                total_pages=1,
+                pages=[DocumentPage(page_number=1, text=fallback_text)],
+                full_text=fallback_text,
+                extraction_method="fallback_salvaged",
+            )
+

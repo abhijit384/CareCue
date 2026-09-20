@@ -83,12 +83,14 @@ function extractErrorMessage(body: unknown, status: number): { message: string; 
     const record = body as Record<string, any>;
     const errorObj = record.error;
     const detail = record.detail;
+    const details = record.details;
     const message =
       (typeof errorObj === 'object' && errorObj?.message) ||
       (typeof errorObj === 'string' && errorObj) ||
       (typeof record.message === 'string' && record.message) ||
       (typeof detail === 'string' && detail) ||
       (typeof detail === 'object' && detail?.message) ||
+      (typeof details === 'string' && details) ||
       null;
     const code =
       (typeof errorObj === 'object' && errorObj?.code) ||
