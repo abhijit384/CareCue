@@ -115,6 +115,19 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
             elif sub_resource == "doctor-brief":
                 if http_method == "GET":
                     brief = patient_store.get_doctor_brief(patient_id)
+                    if not brief:
+                        p = patient_store.get_patient(patient_id)
+                        if p:
+                            docs = patient_store.get_documents_by_patient(patient_id)
+                            findings = patient_store.get_patient_findings(patient_id)
+                            brief = gemini_service.synthesize_doctor_brief(
+                                patient_info=p,
+                                documents=docs,
+                                findings=findings,
+                                user_notes="",
+                            )
+                            if brief and isinstance(brief, dict):
+                                patient_store.save_doctor_brief(patient_id, brief)
                     return _json_response(200, brief or {})
                 elif http_method == "POST":
                     body_str = event.get("body", "{}")

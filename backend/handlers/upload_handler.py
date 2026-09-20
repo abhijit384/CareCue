@@ -333,6 +333,27 @@ def handle_document_upload(event: Dict[str, Any]) -> Dict[str, Any]:
 
     saved = patient_store.save_document(doc_record)
 
+    # Sync extracted medications to patient profile
+    if effective_patient_id and structured_data and isinstance(structured_data, dict):
+        new_meds = structured_data.get("medications", [])
+        if new_meds and isinstance(new_meds, list):
+            pat = patient_store.get_patient(effective_patient_id)
+            if pat:
+                existing_meds = pat.get("currentMedications", []) or []
+                med_names = set(
+                    (m.get("name") if isinstance(m, dict) else str(m)).lower().strip()
+                    for m in existing_meds
+                )
+                added = False
+                for m in new_meds:
+                    m_name = (m.get("name") if isinstance(m, dict) else str(m)).strip()
+                    if m_name and m_name.lower() not in med_names:
+                        existing_meds.append(m if isinstance(m, dict) else {"name": m_name})
+                        med_names.add(m_name.lower())
+                        added = True
+                if added:
+                    patient_store.update_patient(effective_patient_id, {"currentMedications": existing_meds})
+
     # 6. Upload to S3 if available
     try:
         import boto3
