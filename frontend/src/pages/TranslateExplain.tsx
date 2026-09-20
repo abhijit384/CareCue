@@ -23,7 +23,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { patientService, apiClient } from '@/services';
+import { patientService, apiClient, translationService, explainService } from '@/services';
 import { useTTS } from '@/hooks/useTTS';
 import { useToast } from '@/contexts/ToastContext';
 import type { Patient } from '@/lib/types';
@@ -282,27 +282,80 @@ export function TranslateExplain() {
     handleStopSpeech();
 
     try {
-      const res = await apiClient.post<ExplanationState>('/api/translate-and-explain', {
-        text: sourceText,
-        targetLanguage,
-        findingTitle: sourceTitle || 'Doctor Visit Brief',
-      });
-
-      setExplanationResult(res);
-      setTranslationResult(res.translatedSourceText || res.translatedExplanation || res.explainedSimply || null);
-      setExplanationViewLang(preferredView);
-      showToast(`Simplified explanation generated in English & ${activeLangEntry.name}.`, 'success');
-    } catch (err: any) {
-      // Fallback direct translation if combo endpoint had an issue
-      try {
-        const direct = await apiClient.post<{ translatedText: string }>('/api/translate', {
-          text: sourceText,
+      if (callerAction === 'translate') {
+        const translated = await translationService.translateText(sourceText, targetLanguage as any);
+        setTranslationResult(translated);
+        setExplanationResult({
+          findingTitle: sourceTitle || 'Doctor Visit Brief',
+          explainedSimply: sourceText,
+          translatedExplanation: translated,
+          doctorSummary: sourceText.slice(0, 300),
+          translatedDoctorSummary: translated.slice(0, 300),
           targetLanguage,
         });
-        setTranslationResult(direct.translatedText);
+        setExplanationViewLang('target');
+        showToast(`Translation completed in ${activeLangEntry.name}.`, 'success');
+      } else {
+        // Explain or Combo
+        const exp = await explainService.explain({
+          findingTitle: sourceTitle || 'Doctor Visit Brief',
+          sourceQuote: sourceText.slice(0, 1500),
+          level: 'standard',
+        });
+
+        let trExplained = '';
+        let trWhy = '';
+        let trQuestions: string[] = [];
+
+        if (targetLanguage !== 'en') {
+          try {
+            trExplained = await translationService.translateText(exp.explainedSimply, targetLanguage as any);
+            trWhy = await translationService.translateText(exp.whyItAppears, targetLanguage as any);
+            if (exp.whatToDiscuss && exp.whatToDiscuss.length > 0) {
+              trQuestions = await Promise.all(
+                exp.whatToDiscuss.map(q => translationService.translateText(q, targetLanguage as any))
+              );
+            }
+          } catch (trErr) {
+            console.warn('Sub-field translation failed:', trErr);
+          }
+        }
+
+        const formattedResult: ExplanationState = {
+          findingTitle: exp.findingTitle || sourceTitle || 'Doctor Visit Brief',
+          explainedSimply: exp.explainedSimply,
+          whatThisMeans: exp.whyItAppears,
+          whyItAppears: exp.whyItAppears,
+          doctorSummary: exp.explainedSimply,
+          questionsForDoctor: exp.whatToDiscuss || [],
+          disclaimer: exp.disclaimer,
+          translatedExplanation: trExplained || exp.explainedSimply,
+          translatedDoctorSummary: trExplained || exp.explainedSimply,
+          translatedWhy: trWhy || exp.whyItAppears,
+          translatedQuestions: trQuestions.length > 0 ? trQuestions : exp.whatToDiscuss,
+          targetLanguage,
+        };
+
+        setExplanationResult(formattedResult);
+        setTranslationResult(trExplained || exp.explainedSimply);
+        setExplanationViewLang(preferredView);
+        showToast(`Simplified explanation generated in English${targetLanguage !== 'en' ? ` & ${activeLangEntry.name}` : ''}.`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Translate/Explain error:', err);
+      try {
+        const direct = await translationService.translateText(sourceText, targetLanguage as any);
+        setTranslationResult(direct);
+        setExplanationResult({
+          findingTitle: sourceTitle || 'Doctor Visit Brief',
+          explainedSimply: sourceText,
+          translatedExplanation: direct,
+          targetLanguage,
+        });
+        setExplanationViewLang(preferredView);
         showToast('Document translation completed.', 'info');
       } catch (err2: any) {
-        showToast(err.message || 'Operation failed.', 'error');
+        showToast(err.message || 'AI service temporarily unavailable. Please try again.', 'error');
       }
     } finally {
       setLoading(false);

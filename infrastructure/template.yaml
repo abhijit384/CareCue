@@ -262,6 +262,12 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref CareCueSessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GeminiSecretName}*"
       Events:
         ListPatients:
           Type: HttpApi

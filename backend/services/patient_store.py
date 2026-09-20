@@ -394,15 +394,56 @@ class PatientStore:
 
         return self.get_patient(patient_id)
 
-    def delete_patient(self, patient_id: str) -> bool:
-        """Deletes a patient and cascade-deletes or detaches associated records."""
+    def delete_patient(self, patient_id: str, user_id: Optional[str] = None) -> bool:
+        """Deletes a patient and cascade-deletes or detaches associated records in SQLite and DynamoDB."""
+        doc_ids = []
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            if user_id:
+                cursor.execute("SELECT user_id FROM patients WHERE patient_id = ?;", (patient_id,))
+                row = cursor.fetchone()
+                if row and row["user_id"] and row["user_id"] != user_id:
+                    logger.warning(f"Unauthorized deletion attempt for patient {patient_id} by user {user_id}")
+                    return False
+
+            cursor.execute("SELECT document_id FROM documents WHERE patient_id = ?;", (patient_id,))
+            doc_ids = [r["document_id"] for r in cursor.fetchall()]
+
             cursor.execute("DELETE FROM documents WHERE patient_id = ?;", (patient_id,))
             cursor.execute("DELETE FROM doctor_briefs WHERE patient_id = ?;", (patient_id,))
             cursor.execute("DELETE FROM patients WHERE patient_id = ?;", (patient_id,))
             conn.commit()
-            return cursor.rowcount > 0
+
+        # Delete from DynamoDB so next scan doesn't resurrect patient
+        table = get_dynamo_table()
+        if table:
+            try:
+                table.delete_item(Key={"sessionId": patient_id})
+                for d_id in doc_ids:
+                    try:
+                        table.delete_item(Key={"sessionId": d_id})
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"Failed to delete patient {patient_id} from DynamoDB: {e}")
+
+        return True
+
+    def delete_patient_document(self, patient_id: str, document_id: str) -> bool:
+        """Deletes a patient document from SQLite and DynamoDB."""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM documents WHERE document_id = ? AND patient_id = ?;", (document_id, patient_id))
+            conn.commit()
+
+        table = get_dynamo_table()
+        if table:
+            try:
+                table.delete_item(Key={"sessionId": document_id})
+            except Exception as e:
+                logger.warning(f"Failed to delete document {document_id} from DynamoDB: {e}")
+
+        return True
 
     # ─── Documents Management ───
 
@@ -852,10 +893,39 @@ class PatientStore:
 
     def _row_to_patient_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
         d = dict(row)
+        def _safe_list(val):
+            if not val:
+                return []
+            if isinstance(val, list):
+                return val
+            if isinstance(val, str):
+                try:
+                    parsed = json.loads(val)
+                    if isinstance(parsed, list):
+                        return parsed
+                except Exception:
+                    pass
+                return [s.strip() for s in val.split(",") if s.strip()]
+            return []
+
+        def _safe_obj(val):
+            if not val:
+                return None
+            if isinstance(val, dict):
+                return val
+            if isinstance(val, str):
+                try:
+                    parsed = json.loads(val)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    pass
+            return None
+
         return {
             "patientId": d["patient_id"],
             "userId": d.get("user_id"),
-            "name": d["name"],
+            "name": d.get("name") or "Patient",
             "dateOfBirth": d.get("date_of_birth"),
             "gender": d.get("gender"),
             "phone": d.get("phone"),
@@ -864,10 +934,10 @@ class PatientStore:
             "relationship": d.get("relationship") or "Self",
             "relationshipDetail": d.get("relationship_detail"),
             "isDemo": bool(d.get("is_demo")),
-            "severeAllergies": json.loads(d.get("severe_allergies") or "[]"),
-            "currentMedications": json.loads(d.get("current_medications") or "[]"),
-            "importantConditions": json.loads(d.get("important_conditions") or "[]"),
-            "emergencyContact": json.loads(d.get("emergency_contact")) if d.get("emergency_contact") else None,
+            "severeAllergies": _safe_list(d.get("severe_allergies")),
+            "currentMedications": _safe_list(d.get("current_medications")),
+            "importantConditions": _safe_list(d.get("important_conditions")),
+            "emergencyContact": _safe_obj(d.get("emergency_contact")),
             "notes": d.get("notes", ""),
             "documentCount": d.get("document_count", 0),
             "createdAt": d["created_at"],

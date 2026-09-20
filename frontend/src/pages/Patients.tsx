@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users,
@@ -32,6 +33,24 @@ import { deriveDisplayName, validateDocumentFile, getDocumentMimeType } from '@/
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 
+const toArray = (val: any): string[] => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.map(x => typeof x === 'string' ? x : (x.name || x.finding || JSON.stringify(x)));
+  if (typeof val === 'string') {
+    try {
+      const p = JSON.parse(val);
+      if (Array.isArray(p)) return p.map(x => typeof x === 'string' ? x : (x.name || x.finding || JSON.stringify(x)));
+    } catch {}
+    return val.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+};
+
+const formatList = (val: any): string => {
+  const arr = toArray(val);
+  return arr.length > 0 ? arr.join(', ') : 'None documented';
+};
+
 const RELATIONSHIP_CHOICES = [
   'Self',
   'Mother',
@@ -47,6 +66,8 @@ const RELATIONSHIP_CHOICES = [
 type TabType = 'overview' | 'documents' | 'timeline' | 'findings' | 'briefs' | 'emergency';
 
 export function Patients() {
+  const [searchParams] = useSearchParams();
+  const urlPatientId = searchParams.get('patientId');
   const { user, openOnboarding, openLoadDemoModal, patients: authPatients, refreshActivePatient } = useAuth();
   const { showToast } = useToast();
   const selfFullName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : '';
@@ -106,9 +127,18 @@ export function Patients() {
     try {
       const list = await patientService.list();
       setPatients(list);
+      if (urlPatientId) {
+        const found = list.find(p => p.patientId === urlPatientId);
+        if (found) handleSelectPatient(found);
+      }
     } catch {
       // Fall back to authPatients
-      setPatients(authPatients || []);
+      const fallbackList = authPatients || [];
+      setPatients(fallbackList);
+      if (urlPatientId) {
+        const found = fallbackList.find(p => p.patientId === urlPatientId);
+        if (found) handleSelectPatient(found);
+      }
     }
     setLoading(false);
   };
@@ -131,14 +161,9 @@ export function Patients() {
     
     setEditingEmergency(false);
     setEmBloodGroup(p.bloodGroup || '');
-    const toStr = (val: any) => {
-      if (!val) return '';
-      if (Array.isArray(val)) return val.join(', ');
-      return String(val);
-    };
-    setEmAllergies(toStr(p.severeAllergies));
-    setEmConditions(toStr(p.importantConditions));
-    setEmMedications(toStr(p.currentMedications));
+    setEmAllergies(formatList(p.severeAllergies));
+    setEmConditions(formatList(p.importantConditions));
+    setEmMedications(formatList(p.currentMedications));
     setEmContactName(p.emergencyContact?.name || '');
     setEmContactPhone(p.emergencyContact?.phone || '');
     setEmContactRel(p.emergencyContact?.relationship || '');

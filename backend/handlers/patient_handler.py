@@ -8,10 +8,12 @@ from typing import Dict, Any, Optional
 try:
     from backend.services.patient_store import PatientStore
     from backend.services.patient_service import PatientService
+    from backend.services.gemini_service import GeminiVerificationService
     from backend.database.db import init_db
 except ImportError:
     from services.patient_store import PatientStore
     from services.patient_service import PatientService
+    from services.gemini_service import GeminiVerificationService
     from database.db import init_db
 
 try:
@@ -28,6 +30,7 @@ CORS_HEADERS = {
 
 patient_store = PatientStore()
 patient_service = PatientService(patient_store)
+gemini_service = GeminiVerificationService()
 
 
 def _json_response(status_code: int, body: Any) -> Dict[str, Any]:
@@ -116,8 +119,26 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
                 elif http_method == "POST":
                     body_str = event.get("body", "{}")
                     payload = json.loads(body_str) if isinstance(body_str, str) else body_str
-                    brief = patient_store.save_doctor_brief(patient_id, payload)
-                    return _json_response(200, brief)
+                    # If payload already has full brief, save it
+                    if isinstance(payload, dict) and payload.get("documentSummary") and payload.get("keyFindings"):
+                        brief = patient_store.save_doctor_brief(patient_id, payload)
+                        return _json_response(200, brief)
+
+                    # Otherwise synthesize real grounded brief from patient's documents & findings
+                    p = patient_store.get_patient(patient_id)
+                    if not p:
+                        return _json_response(404, {"error": f"Patient {patient_id} not found"})
+                    docs = patient_store.get_documents_by_patient(patient_id)
+                    findings = patient_store.get_patient_findings(patient_id)
+                    user_notes = payload.get("userNotes", "") if isinstance(payload, dict) else ""
+                    synthesized = gemini_service.synthesize_doctor_brief(
+                        patient_info=p,
+                        documents=docs,
+                        findings=findings,
+                        user_notes=user_notes,
+                    )
+                    saved = patient_store.save_doctor_brief(patient_id, synthesized)
+                    return _json_response(200, saved)
 
             elif sub_resource == "emergency-profile":
                 if http_method == "PUT":
@@ -150,7 +171,7 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
                         return _json_response(404, {"error": f"Patient {patient_id} not found"})
                     return _json_response(200, updated)
                 elif http_method == "DELETE":
-                    deleted = patient_store.delete_patient(patient_id)
+                    deleted = patient_store.delete_patient(patient_id, user_id=user_id)
                     return _json_response(200, {"deleted": deleted})
 
         # Route 5: Base /patients collection

@@ -112,27 +112,28 @@ export function DoctorBriefPage() {
 
   const handleCopy = () => {
     if (!brief) return;
+    const keyFindingsList = brief.keyFindings || [];
     const text = [
       '==========================================',
       'CARECUE DOCTOR VISIT BRIEF (EDUCATIONAL AID)',
       '==========================================',
-      `Date: ${brief.sessionDate}`,
+      `Date: ${brief.sessionDate || new Date().toLocaleDateString()}`,
       `Language: ${currentLang.toUpperCase()}`,
       '',
       'SUMMARY',
       activeSummary,
       '',
       'KEY FINDINGS & OBSERVATIONS',
-      ...brief.keyFindings.map(
+      ...keyFindingsList.map(
         f => `• ${f.finding}: ${f.value} (Ref Range: ${f.range}) [${f.verificationStatus === 'consistent' ? 'Verified Consistent' : 'Flagged for Review'}]`
       ),
       '',
       'RECOMMENDED DISCUSSION QUESTIONS',
-      ...activeDiscussion.map(d => `? ${d}`),
+      ...(Array.isArray(activeDiscussion) ? activeDiscussion : []).map(d => `? ${d}`),
       '',
       ...(userNotes ? ['PATIENT NOTES', userNotes, ''] : []),
       'DISCLAIMER',
-      brief.disclaimer,
+      brief.disclaimer || 'CareCue is an educational AI assistant and does not provide formal medical diagnosis.',
     ].join('\n');
 
     navigator.clipboard.writeText(text);
@@ -142,24 +143,25 @@ export function DoctorBriefPage() {
 
   const handleDownload = () => {
     if (!brief) return;
+    const keyFindingsList = brief.keyFindings || [];
     const text = [
       'CARECUE DOCTOR VISIT BRIEF',
-      `Date: ${brief.sessionDate}`,
+      `Date: ${brief.sessionDate || new Date().toLocaleDateString()}`,
       `Language: ${currentLang.toUpperCase()}`,
       '',
       'DOCUMENT SUMMARY',
       activeSummary,
       '',
       'KEY FINDINGS',
-      ...brief.keyFindings.map(f => `• ${f.finding}: ${f.value} (Range: ${f.range})`),
+      ...keyFindingsList.map(f => `• ${f.finding}: ${f.value} (Range: ${f.range})`),
       '',
       'QUESTIONS TO DISCUSS WITH DOCTOR',
-      ...activeDiscussion.map(d => `• ${d}`),
+      ...(Array.isArray(activeDiscussion) ? activeDiscussion : []).map(d => `• ${d}`),
       '',
       ...(userNotes ? ['PATIENT NOTES', userNotes, ''] : []),
       '',
       'DISCLAIMER',
-      brief.disclaimer,
+      brief.disclaimer || 'CareCue is an educational AI assistant and does not provide formal medical diagnosis.',
     ].join('\n');
 
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
@@ -389,50 +391,54 @@ export function DoctorBriefPage() {
         <div className="px-6 sm:px-8 py-5 border-b border-border-subtle">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
-              Extracted Key Findings ({brief.keyFindings.length})
+              Extracted Key Findings ({(brief.keyFindings || []).length})
             </h2>
             <span className="text-xs text-text-tertiary">Verified Against Clinical Documents</span>
           </div>
 
-          <div className="space-y-3">
-            {brief.keyFindings.map((finding, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.15 + i * 0.04 }}
-                className={cn(
-                  'flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border transition-colors',
-                  finding.discussWithDoctor
-                    ? 'bg-status-review-bg/25 border-status-review/25'
-                    : 'bg-bg-secondary/40 border-border-subtle'
-                )}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-text-primary">{finding.finding}</p>
-                    {finding.discussWithDoctor && (
-                      <span className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-md bg-status-review-bg text-status-review uppercase">
-                        Priority
+          {(!brief.keyFindings || brief.keyFindings.length === 0) ? (
+            <p className="text-xs text-text-tertiary italic">No specific lab markers or findings flagged for this brief.</p>
+          ) : (
+            <div className="space-y-3">
+              {(brief.keyFindings || []).map((finding, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.15 + i * 0.04 }}
+                  className={cn(
+                    'flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border transition-colors',
+                    finding.discussWithDoctor
+                      ? 'bg-status-review-bg/25 border-status-review/25'
+                      : 'bg-bg-secondary/40 border-border-subtle'
+                  )}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-text-primary">{finding.finding}</p>
+                      {finding.discussWithDoctor && (
+                        <span className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-md bg-status-review-bg text-status-review uppercase">
+                          Priority
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-4 mt-1">
+                      <span className="text-sm font-mono font-bold text-text-primary">
+                        {finding.value}
                       </span>
-                    )}
+                      <span className="text-xs text-text-tertiary font-mono">
+                        Ref: {finding.range}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-4 mt-1">
-                    <span className="text-sm font-mono font-bold text-text-primary">
-                      {finding.value}
-                    </span>
-                    <span className="text-xs text-text-tertiary font-mono">
-                      Ref: {finding.range}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="self-end sm:self-auto shrink-0">
-                  <VerificationBadge status={finding.verificationStatus} size="sm" />
-                </div>
-              </motion.div>
-            ))}
-          </div>
+                  <div className="self-end sm:self-auto shrink-0">
+                    <VerificationBadge status={finding.verificationStatus} size="sm" />
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 3. Discussion Items */}
@@ -452,9 +458,11 @@ export function DoctorBriefPage() {
               <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-teal" />
               <span>Translating discussion points...</span>
             </div>
+          ) : (!activeDiscussion || activeDiscussion.length === 0) ? (
+            <p className="text-xs text-text-tertiary italic">No specific discussion questions generated.</p>
           ) : (
             <ul className="space-y-2.5">
-              {activeDiscussion.map((item, i) => (
+              {(Array.isArray(activeDiscussion) ? activeDiscussion : []).map((item, i) => (
                 <li key={i} className="flex items-start gap-2.5 text-xs sm:text-sm text-text-secondary leading-relaxed">
                   <span className="w-5 h-5 rounded-full bg-accent-teal-light text-accent-teal-dark flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
                     {i + 1}
