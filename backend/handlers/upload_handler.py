@@ -17,7 +17,7 @@ def response(status_code: int, body: Any) -> Dict[str, Any]:
         "headers": {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type,Authorization",
+            "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Session-Id,X-User-Id,X-Correlation-Id",
             "Access-Control-Allow-Methods": "OPTIONS,POST",
         },
         "body": json.dumps(body),

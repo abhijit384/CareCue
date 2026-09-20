@@ -19,11 +19,25 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
-from ..verification.verification_types import (
-    GeminiVerificationPayload,
-    GeminiVerificationResponse,
-    VerificationOutcome,
-)
+try:
+    from verification.verification_types import (
+        GeminiVerificationPayload,
+        GeminiVerificationResponse,
+        VerificationOutcome,
+    )
+except ImportError:
+    try:
+        from backend.verification.verification_types import (
+            GeminiVerificationPayload,
+            GeminiVerificationResponse,
+            VerificationOutcome,
+        )
+    except ImportError:
+        from ..verification.verification_types import (
+            GeminiVerificationPayload,
+            GeminiVerificationResponse,
+            VerificationOutcome,
+        )
 
 logger = logging.getLogger(__name__)
 

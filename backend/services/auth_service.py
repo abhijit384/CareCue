@@ -33,16 +33,24 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone, timedelta
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+    _backend_env = Path(__file__).resolve().parent.parent / ".env"
+    _root_env = Path(__file__).resolve().parent.parent.parent / ".env"
+    if _backend_env.exists():
+        load_dotenv(_backend_env, override=True)
+    if _root_env.exists():
+        load_dotenv(_root_env, override=False)
+except ImportError:
+    pass
 
-_backend_env = Path(__file__).resolve().parent.parent / ".env"
-_root_env = Path(__file__).resolve().parent.parent.parent / ".env"
-if _backend_env.exists():
-    load_dotenv(_backend_env, override=True)
-if _root_env.exists():
-    load_dotenv(_root_env, override=False)
-
-from ..database.db import get_db_connection
+try:
+    from database.db import get_db_connection
+except ImportError:
+    try:
+        from backend.database.db import get_db_connection
+    except ImportError:
+        from ..database.db import get_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -119,12 +127,16 @@ def send_email_otp(to_email: str, otp: str, first_name: str = "there", purpose: 
     
     # 1. Check Gmail SMTP (Localhost default)
     # Ensure fresh read from .env if needed
-    _b_env = Path(__file__).resolve().parent.parent / ".env"
-    if _b_env.exists():
-        load_dotenv(_b_env, override=True)
-    _r_env = Path(__file__).resolve().parent.parent.parent / ".env"
-    if _r_env.exists():
-        load_dotenv(_r_env, override=True)
+    try:
+        from dotenv import load_dotenv
+        _b_env = Path(__file__).resolve().parent.parent / ".env"
+        if _b_env.exists():
+            load_dotenv(_b_env, override=True)
+        _r_env = Path(__file__).resolve().parent.parent.parent / ".env"
+        if _r_env.exists():
+            load_dotenv(_r_env, override=True)
+    except ImportError:
+        pass
 
     smtp_username = (os.environ.get("SMTP_USERNAME") or "").strip()
     smtp_password = (os.environ.get("SMTP_PASSWORD") or "").strip()

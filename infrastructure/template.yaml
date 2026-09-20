@@ -16,13 +16,44 @@ Parameters:
 
   BedrockModelId:
     Type: String
-    Default: anthropic.claude-3-5-sonnet-20241022-v2:0
+    Default: amazon.nova-micro-v1:0
     Description: Amazon Bedrock Foundation Model ID used for clinical document comprehension.
 
   GeminiSecretName:
     Type: String
     Default: carecue/dev/gemini
     Description: Name of the existing AWS Secrets Manager secret containing GEMINI_API_KEY.
+
+  SmtpHost:
+    Type: String
+    Default: smtp.gmail.com
+    Description: SMTP server host for sending OTP emails.
+
+  SmtpPort:
+    Type: String
+    Default: "587"
+    Description: SMTP server port.
+
+  SmtpUsername:
+    Type: String
+    Default: ""
+    Description: SMTP username/email address.
+
+  SmtpPassword:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: SMTP application password.
+
+  SmtpUseTls:
+    Type: String
+    Default: "true"
+    Description: Use TLS for SMTP connection.
+
+  AppUrl:
+    Type: String
+    Default: https://production.d1hi4xdmbv4m4r.amplifyapp.com
+    Description: Production Web App URL.
 
 Globals:
   Function:
@@ -37,6 +68,13 @@ Globals:
         DOCUMENTS_BUCKET_NAME: !Ref CareCueDocumentsBucket
         BEDROCK_MODEL_ID: !Ref BedrockModelId
         GEMINI_SECRET_NAME: !Ref GeminiSecretName
+        SMTP_HOST: !Ref SmtpHost
+        SMTP_PORT: !Ref SmtpPort
+        SMTP_USERNAME: !Ref SmtpUsername
+        SMTP_PASSWORD: !Ref SmtpPassword
+        SMTP_USE_TLS: !Ref SmtpUseTls
+        APP_URL: !Ref AppUrl
+        DB_PATH: /tmp/carecue.db
         AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
 
 Resources:
@@ -105,20 +143,184 @@ Resources:
         AllowOrigins:
           - '*'
         AllowHeaders:
-          - Content-Type
-          - Authorization
-          - X-Session-Id
+          - '*'
         AllowMethods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - OPTIONS
+          - '*'
         MaxAge: 600
 
   ##############################################################################
   # 4. Lambda Functions
   ##############################################################################
+
+  # Authentication, OTP, Demo & Health
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/
+      Handler: handlers.auth_handler.lambda_handler
+      MemorySize: 512
+      Timeout: 20
+      Events:
+        AuthSignup:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /auth/signup
+            Method: POST
+        AuthVerifyOtp:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /auth/verify-otp
+            Method: POST
+        AuthVerifyEmail:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /auth/verify-email
+            Method: POST
+        AuthResendOtp:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /auth/resend-otp
+            Method: POST
+        AuthSignin:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /auth/signin
+            Method: POST
+        AuthLogin:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /auth/login
+            Method: POST
+        AuthDemoSignin:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /auth/demo-signin
+            Method: POST
+        AuthForgotPassword:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /auth/forgot-password
+            Method: POST
+        AuthResetPassword:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /auth/reset-password
+            Method: POST
+        DemoLoad:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /demo/load
+            Method: POST
+        DemoClear:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /demo/clear
+            Method: POST
+        HealthAi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /health/ai
+            Method: GET
+        HealthAiPost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /health/ai
+            Method: POST
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /health
+            Method: GET
+
+  # Patient Manager & Timeline
+  PatientFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/
+      Handler: handlers.patient_handler.lambda_handler
+      MemorySize: 512
+      Timeout: 20
+      Events:
+        ListPatients:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients
+            Method: GET
+        CreatePatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients
+            Method: POST
+        GetPatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}
+            Method: GET
+        DeletePatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}
+            Method: DELETE
+        GetPatientDocuments:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/documents
+            Method: GET
+        AddPatientDocument:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/documents
+            Method: POST
+        DeletePatientDocument:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/documents/{docId}
+            Method: DELETE
+        GetPatientTimeline:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/timeline
+            Method: GET
+        UpdatePatientEmergencyProfile:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/emergency-profile
+            Method: PUT
+        IdentifyPatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /documents/identify-patient
+            Method: POST
+        MatchPatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /documents/match-patient
+            Method: POST
 
   # Session Manager (CRUD sessions)
   SessionFunction:
@@ -199,6 +401,7 @@ Resources:
                 - !Sub "arn:aws:bedrock:*::foundation-model/${BedrockModelId}"
                 - "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
                 - "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+                - "arn:aws:bedrock:*::foundation-model/amazon.nova-micro-v1:0"
             - Effect: Allow
               Action:
                 - secretsmanager:GetSecretValue
@@ -286,12 +489,79 @@ Resources:
               Resource:
                 - !Sub "arn:aws:bedrock:*::foundation-model/${BedrockModelId}"
                 - "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+                - "arn:aws:bedrock:*::foundation-model/amazon.nova-micro-v1:0"
       Events:
         AskGuidance:
           Type: HttpApi
           Properties:
             ApiId: !Ref CareCueHttpApi
             Path: /guidance
+            Method: POST
+
+  # Multilingual Translation
+  TranslationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/
+      Handler: handlers.translation_handler.lambda_handler
+      MemorySize: 512
+      Timeout: 25
+      Events:
+        TranslateText:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /translate
+            Method: POST
+        TranslateBrief:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /translate-brief
+            Method: POST
+        TranslateBatch:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /translate-batch
+            Method: POST
+        TranslateLegacy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /translation
+            Method: POST
+
+  # Plain Language Explanation
+  ExplainFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/
+      Handler: handlers.explain_handler.lambda_handler
+      MemorySize: 512
+      Timeout: 20
+      Events:
+        ExplainFinding:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /explain
+            Method: POST
+
+  # Emergency Triage Evaluation
+  EmergencyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/
+      Handler: handlers.emergency_handler.lambda_handler
+      MemorySize: 512
+      Timeout: 20
+      Events:
+        EmergencyTriage:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /emergency
             Method: POST
 
 Outputs:

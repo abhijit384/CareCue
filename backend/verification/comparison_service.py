@@ -5,14 +5,26 @@ backend/verification/comparison_service.py - Orchestrates dual-AI comparison and
 from typing import Dict, Any, List, Tuple
 from .verification_types import VerificationOutcome, GeminiVerificationPayload, ConsensusReport
 from .verification_rules import evaluate_consensus
-from ..services.evidence_validator import validate_finding_grounding, GroundingStatus
+try:
+    from services.evidence_validator import validate_finding_grounding, GroundingStatus
+except ImportError:
+    try:
+        from backend.services.evidence_validator import validate_finding_grounding, GroundingStatus
+    except ImportError:
+        from ..services.evidence_validator import validate_finding_grounding, GroundingStatus
 
 class DualAIVerificationEngine:
     """Coordinates Bedrock findings, Gemini cross-checking, and evidence validation."""
 
     def __init__(self, gemini_service=None):
         if gemini_service is None:
-            from ..services.gemini_service import GeminiVerificationService
+            try:
+                from services.gemini_service import GeminiVerificationService
+            except ImportError:
+                try:
+                    from backend.services.gemini_service import GeminiVerificationService
+                except ImportError:
+                    from ..services.gemini_service import GeminiVerificationService
             self.gemini_service = GeminiVerificationService()
         else:
             self.gemini_service = gemini_service

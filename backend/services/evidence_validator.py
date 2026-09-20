@@ -2,7 +2,13 @@ import re
 from enum import Enum
 from dataclasses import dataclass
 from typing import Dict, Any, List, Tuple, Optional
-from ..document.pdf_extractor import ExtractedDocument
+try:
+    from document.pdf_extractor import ExtractedDocument
+except ImportError:
+    try:
+        from backend.document.pdf_extractor import ExtractedDocument
+    except ImportError:
+        from ..document.pdf_extractor import ExtractedDocument
 
 class GroundingStatus(str, Enum):
     VERIFIED = "verified"

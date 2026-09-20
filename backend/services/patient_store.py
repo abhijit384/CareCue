@@ -12,7 +12,13 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
-from ..database.db import get_db_connection
+try:
+    from database.db import get_db_connection, seed_demo_patients, ensure_user_exists
+except ImportError:
+    try:
+        from backend.database.db import get_db_connection, seed_demo_patients, ensure_user_exists
+    except ImportError:
+        from ..database.db import get_db_connection, seed_demo_patients, ensure_user_exists
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,6 @@ class PatientStore:
             conn.execute("DELETE FROM doctor_briefs;")
             conn.execute("DELETE FROM patients;")
             conn.commit()
-        from ..database.db import seed_demo_patients
         seed_demo_patients()
 
     def list_patients(self, search_query: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -106,8 +111,6 @@ class PatientStore:
                     account_name = f"{user_row['first_name'] or ''} {user_row['last_name'] or ''}".strip()
                     if account_name:
                         patient_name = account_name
-                elif not user_row:
-                    from ..database.db import ensure_user_exists
                     ensure_user_exists(cursor, user_id, first_name=patient_name)
 
             cursor.execute("""

@@ -13,24 +13,44 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "carecue.db"))
-DOCUMENTS_STORAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "documents"))
+if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or os.environ.get("LAMBDA_TASK_ROOT"):
+    DB_PATH = os.environ.get("DB_PATH", "/tmp/carecue.db")
+    DOCUMENTS_STORAGE_DIR = os.environ.get("DOCUMENTS_STORAGE_DIR", "/tmp/documents")
+else:
+    DB_PATH = os.environ.get("DB_PATH", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "carecue.db")))
+    DOCUMENTS_STORAGE_DIR = os.environ.get("DOCUMENTS_STORAGE_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "documents")))
 
 try:
     os.makedirs(DOCUMENTS_STORAGE_DIR, exist_ok=True)
 except OSError:
     pass
 
+_db_initialized = False
+
 def get_db_connection() -> sqlite3.Connection:
     """Returns a SQLite connection with dict-like row access."""
+    global _db_initialized
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    if not _db_initialized:
+        _db_initialized = True
+        try:
+            init_db(conn)
+        except Exception as e:
+            logger.warning(f"Auto init_db notice: {e}")
     return conn
 
-def init_db():
+def init_db(conn: Optional[sqlite3.Connection] = None):
     """Initializes tables. Never seeds demo patients automatically."""
-    with get_db_connection() as conn:
+    close_when_done = False
+    if conn is None:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        close_when_done = True
+
+    try:
         cursor = conn.cursor()
 
         # Users Table
@@ -134,6 +154,9 @@ def init_db():
         """)
 
         conn.commit()
+    finally:
+        if close_when_done:
+            conn.close()
 
 def ensure_user_exists(cursor: sqlite3.Cursor, user_id: str, first_name: str = "User", last_name: str = ""):
     now = datetime.now(timezone.utc).isoformat()
@@ -341,8 +364,13 @@ def seed_demo_patients(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
             cursor.execute("SELECT * FROM patients WHERE is_demo = 1 AND user_id = ?", (valid_user_id,))
         else:
             cursor.execute("SELECT * FROM patients WHERE is_demo = 1")
-        rows = cursor.fetchall()
-        from ..services.patient_store import patient_store
+        try:
+            from services.patient_store import patient_store
+        except ImportError:
+            try:
+                from backend.services.patient_store import patient_store
+            except ImportError:
+                from ..services.patient_store import patient_store
         return [patient_store._row_to_patient_dict(r) for r in rows]
 
 def clear_demo_patients(user_id: Optional[str] = None):

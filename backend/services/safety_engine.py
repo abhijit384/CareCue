@@ -1,7 +1,13 @@
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, List, Dict, Any, Tuple
-from ..security.output_safety_filter import OutputSafetyFilter
+try:
+    from security.output_safety_filter import OutputSafetyFilter
+except ImportError:
+    try:
+        from backend.security.output_safety_filter import OutputSafetyFilter
+    except ImportError:
+        from ..security.output_safety_filter import OutputSafetyFilter
 
 class SafetyCategory(str, Enum):
     EMERGENCY = "EMERGENCY"

@@ -1,7 +1,13 @@
 import logging
 from typing import Optional
 from .pdf_extractor import ExtractedDocument, DocumentPage
-from ..services.gemini_service import GeminiVerificationService
+try:
+    from services.gemini_service import GeminiVerificationService
+except ImportError:
+    try:
+        from backend.services.gemini_service import GeminiVerificationService
+    except ImportError:
+        from ..services.gemini_service import GeminiVerificationService
 
 logger = logging.getLogger(__name__)
 
