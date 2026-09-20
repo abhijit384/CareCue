@@ -44,5 +44,6 @@ coverage/
 local-env.json
 infrastructure/local-env.json
 *.db
-carecue.db  
+carecue.db
+data/documents/
  
