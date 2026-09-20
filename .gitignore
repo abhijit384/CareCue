@@ -38,4 +38,8 @@ coverage/
 .vscode/
 .idea/
 .DS_Store
-Thumbs.db
+local-env.json
+infrastructure/local-env.json
+*.db
+carecue.db  
+ 

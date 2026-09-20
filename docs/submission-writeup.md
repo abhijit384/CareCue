@@ -77,7 +77,7 @@ CareCue shifts the patient posture from passive confusion or panic to organized,
 ### AI TOOLS USED
 - **Antigravity IDE**: Autonomous agentic pair programming environment for scaffolding, architectural design, TypeScript safety, AWS SAM templates, and end-to-end testing.
 - **Amazon Bedrock (Claude 3.5 Sonnet / Haiku)**: Foundation model runtime for clinical document parsing.
-- **Google Gemini (gemini-2.5-flash)**: Independent verification cross-checker.
+- **Google Gemini (gemini-3.5-flash)**: Independent verification cross-checker.
 
 ---
 

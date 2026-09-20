@@ -86,7 +86,16 @@ def test_unsupported_evidence_quote():
 
 
 def test_dual_engine_batch_verification():
-    engine = DualAIVerificationEngine()
+    from unittest.mock import MagicMock
+    mock_gemini = MagicMock()
+    mock_gemini.model_id = "gemini-3.5-flash"
+    mock_gemini.verify_finding.return_value = GeminiVerificationResponse(
+        status=VerificationOutcome.CONSISTENT,
+        evidence_supported=True,
+        value_matches=True,
+        reasoning_summary="Grounded in document text."
+    )
+    engine = DualAIVerificationEngine(gemini_service=mock_gemini)
     source_text = "Fasting Blood Glucose: 118 mg/dL. Total Cholesterol: 215 mg/dL."
     findings = [
         {

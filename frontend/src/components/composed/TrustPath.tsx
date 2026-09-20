@@ -14,9 +14,9 @@ interface TrustPathProps {
 }
 
 const STEPS: { key: TrustPathStep; label: string; shortLabel: string; desc: string }[] = [
-  { key: 'source', label: 'Source', shortLabel: 'SRC', desc: 'Clinical document or user query' },
-  { key: 'analysis', label: 'Analysis', shortLabel: 'ANL', desc: 'Bedrock extracted interpretation' },
-  { key: 'verification', label: 'Verification', shortLabel: 'VER', desc: 'Gemini dual-AI consensus cross-check' },
+  { key: 'source', label: 'Source', shortLabel: 'SRC', desc: 'Direct clinical document or record' },
+  { key: 'analysis', label: 'Analysis', shortLabel: 'ANL', desc: 'Clinical biomarker extraction' },
+  { key: 'verification', label: 'Verification', shortLabel: 'VER', desc: 'Evidence-grounded consensus check' },
   { key: 'next_step', label: 'Next Step', shortLabel: 'NEXT', desc: 'Evidence-backed brief & questions' },
 ];
 
@@ -35,13 +35,13 @@ const STATUS_CONFIGS: Record<TrustPathStatus, {
 }> = {
   processing: {
     label: 'Verification in Progress',
-    subtext: 'Cross-checking Bedrock claims against Gemini assessment...',
+    subtext: 'Cross-checking clinical findings against source evidence...',
     badgeClass: 'bg-accent-teal-light text-accent-teal-dark border-accent-teal/30',
     icon: Loader2,
   },
   consistent: {
     label: 'Consistent Findings',
-    subtext: 'Both Bedrock and Gemini arrived at aligned interpretations of the source evidence.',
+    subtext: 'Extracted findings are strictly aligned and verified against the source medical record.',
     badgeClass: 'bg-status-consistent-bg text-status-consistent border-status-consistent/30',
     icon: CheckCircle2,
   },

@@ -12,6 +12,7 @@
   --bg-tertiary: hsl(40, 12%, 91%);
   --bg-surface: hsl(0, 0%, 100%);
   --bg-elevated: hsl(0, 0%, 100%);
+  --bg-overlay: hsla(220, 24%, 16%, 0.4);
 
   --text-primary: hsl(220, 24%, 16%);
   --text-secondary: hsl(220, 14%, 40%);
@@ -43,8 +44,13 @@
   --shadow-md: 0 3px 10px hsla(var(--shadow-color), 0.10), 0 1px 3px hsla(var(--shadow-color), 0.05);
   --shadow-lg: 0 6px 20px hsla(var(--shadow-color), 0.12), 0 2px 6px hsla(var(--shadow-color), 0.06);
   --shadow-xl: 0 12px 36px hsla(var(--shadow-color), 0.15), 0 4px 12px hsla(var(--shadow-color), 0.08);
-
   --depth-card-glow: 0 0 0 1px hsla(172, 48%, 40%, 0.1), 0 12px 28px -6px hsla(220, 20%, 30%, 0.08);
+  
+  --motion-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --motion-duration-fast: 150ms;
+  --motion-duration-normal: 250ms;
+  --motion-duration-slow: 450ms;
 }
 
 .dark, [data-theme="dark"] {
@@ -54,6 +60,7 @@
   --bg-tertiary: hsl(222, 18%, 18%);
   --bg-surface: hsl(222, 24%, 12%);
   --bg-elevated: hsl(222, 20%, 15%);
+  --bg-overlay: hsla(222, 26%, 9%, 0.7);
 
   --text-primary: hsl(210, 25%, 96%);
   --text-secondary: hsl(215, 15%, 72%);
@@ -81,12 +88,11 @@
   --border-focus: hsl(172, 50%, 50%);
 
   --shadow-color: 222 35% 4%;
-  --shadow-sm: 0 1px 3px hsla(var(--shadow-color), 0.35);
-  --shadow-md: 0 4px 12px hsla(var(--shadow-color), 0.45);
-  --shadow-lg: 0 8px 24px hsla(var(--shadow-color), 0.55);
-  --shadow-xl: 0 16px 40px hsla(var(--shadow-color), 0.65);
-
-  --depth-card-glow: 0 0 0 1px hsla(172, 50%, 50%, 0.2), 0 12px 32px -6px hsla(222, 35%, 3%, 0.7);
+  --shadow-sm: 0 1px 3px hsla(var(--shadow-color), 0.5);
+  --shadow-md: 0 4px 12px hsla(var(--shadow-color), 0.6);
+  --shadow-lg: 0 8px 24px hsla(var(--shadow-color), 0.7);
+  --shadow-xl: 0 16px 40px hsla(var(--shadow-color), 0.8);
+  --depth-card-glow: 0 0 0 1px hsla(172, 50%, 50%, 0.2), 0 12px 32px -6px hsla(222, 35%, 3%, 0.9);
 }
 
 @theme {
@@ -157,7 +163,7 @@ body {
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
   line-height: 1.6;
-  transition: background-color 0.25s ease, color 0.25s ease;
+  transition: background-color var(--motion-duration-normal) ease, color var(--motion-duration-normal) ease;
 }
 
 /* ─── Distinctive Display Headings ─── */
@@ -213,30 +219,99 @@ p { max-width: 65ch; }
 .skeleton {
   background: linear-gradient(
     90deg,
-    var(--color-bg-secondary) 25%,
+    var(--color-bg-secondary) 15%,
     var(--color-bg-tertiary) 50%,
-    var(--color-bg-secondary) 75%
+    var(--color-bg-secondary) 85%
   );
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite ease-in-out;
+  animation: shimmer 2s infinite linear;
   border-radius: var(--radius-sm);
 }
 
 /* ─── 3D & Depth Utilities ─── */
-.perspective-1000 {
-  perspective: 1000px;
+.perspective-1000 { perspective: 1000px; }
+.perspective-1200 { perspective: 1200px; }
+.transform-style-3d { transform-style: preserve-3d; }
+
+.depth-0 {
+  box-shadow: none;
+  transform: translateZ(0);
+}
+.depth-1 {
+  box-shadow: var(--shadow-sm);
+  transform: translateZ(10px);
+}
+.depth-2 {
+  box-shadow: var(--shadow-md);
+  transform: translateZ(20px);
+}
+.depth-3 {
+  box-shadow: var(--shadow-lg);
+  transform: translateZ(40px);
 }
 
-.perspective-1200 {
-  perspective: 1200px;
+.surface-base {
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+}
+.surface-raised {
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  box-shadow: var(--shadow-md);
+}
+.surface-overlay {
+  background-color: var(--color-bg-elevated);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border-subtle);
+  box-shadow: var(--shadow-xl);
 }
 
-.transform-style-3d {
-  transform-style: preserve-3d;
+/* ─── Ambient Background System ─── */
+.ambient-mesh {
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(172, 48%, 40%, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, hsla(262, 38%, 56%, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, hsla(172, 48%, 40%, 0.05) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, hsla(262, 38%, 56%, 0.05) 0px, transparent 50%);
+}
+.dark .ambient-mesh {
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(172, 50%, 50%, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, hsla(262, 50%, 70%, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, hsla(172, 50%, 50%, 0.08) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, hsla(262, 50%, 70%, 0.05) 0px, transparent 50%);
+}
+
+/* ─── Cursor Glow Effect ─── */
+.cursor-glow {
+  position: relative;
+  overflow: hidden;
+}
+.cursor-glow::before {
+  content: '';
+  position: absolute;
+  top: var(--y, 0);
+  left: var(--x, 0);
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, hsla(172, 48%, 40%, 0.05) 0%, transparent 60%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.3s ease;
+  opacity: 0;
+}
+.dark .cursor-glow::before {
+  background: radial-gradient(circle, hsla(172, 50%, 50%, 0.08) 0%, transparent 60%);
+}
+.cursor-glow:hover::before {
+  opacity: 1;
 }
 
 .card-depth-lift {
-  transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.25s cubic-bezier(0.2, 0, 0, 1), border-color 0.2s ease;
+  transition: transform var(--motion-duration-normal) var(--motion-ease-out-expo), 
+              box-shadow var(--motion-duration-normal) var(--motion-ease-out-expo), 
+              border-color var(--motion-duration-normal) ease;
 }
 
 .card-depth-lift:hover {
@@ -246,11 +321,28 @@ p { max-width: 65ch; }
 
 /* ─── Micro-interaction Press States ─── */
 .btn-press-micro {
-  transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-out-expo), 
+              background-color var(--motion-duration-fast) ease, 
+              box-shadow var(--motion-duration-fast) ease;
 }
 
 .btn-press-micro:active {
   transform: scale(0.975);
+}
+
+/* ─── Toast Container ─── */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast-container > * {
+  pointer-events: auto;
 }
 
 /* ─── Print Styles ─── */
@@ -267,5 +359,8 @@ p { max-width: 65ch; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     transform: none !important;
+  }
+  .ambient-mesh, .cursor-glow::before {
+    display: none !important;
   }
 }

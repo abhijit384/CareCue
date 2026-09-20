@@ -118,7 +118,7 @@ export function ThemeToggle({ variant = 'segmented', className }: ThemeTogglePro
       role="group"
       aria-label="Theme mode selector"
       className={cn(
-        'inline-flex items-center p-1 rounded-xl bg-bg-secondary/70 border border-border-subtle shadow-xs',
+        'inline-flex items-center p-1 rounded-xl bg-bg-secondary/70 border border-border-subtle shadow-xs shrink-0 whitespace-nowrap select-none',
         className
       )}
     >
@@ -127,13 +127,13 @@ export function ThemeToggle({ variant = 'segmented', className }: ThemeTogglePro
         onClick={() => setTheme('light')}
         aria-pressed={theme === 'light'}
         className={cn(
-          'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer',
+          'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap',
           theme === 'light'
             ? 'bg-bg-surface text-text-primary shadow-xs'
             : 'text-text-tertiary hover:text-text-secondary'
         )}
       >
-        <Sun className="w-3.5 h-3.5 text-amber-500" />
+        <Sun className="w-3.5 h-3.5 text-amber-500 shrink-0" />
         <span>Light</span>
       </button>
 
@@ -142,13 +142,13 @@ export function ThemeToggle({ variant = 'segmented', className }: ThemeTogglePro
         onClick={() => setTheme('dark')}
         aria-pressed={theme === 'dark'}
         className={cn(
-          'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer',
+          'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap',
           theme === 'dark'
             ? 'bg-bg-surface text-text-primary shadow-xs'
             : 'text-text-tertiary hover:text-text-secondary'
         )}
       >
-        <Moon className="w-3.5 h-3.5 text-ai-lavender" />
+        <Moon className="w-3.5 h-3.5 text-ai-lavender shrink-0" />
         <span>Dark</span>
       </button>
 
@@ -157,13 +157,13 @@ export function ThemeToggle({ variant = 'segmented', className }: ThemeTogglePro
         onClick={() => setTheme('system')}
         aria-pressed={theme === 'system'}
         className={cn(
-          'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer',
+          'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap',
           theme === 'system'
             ? 'bg-bg-surface text-text-primary shadow-xs'
             : 'text-text-tertiary hover:text-text-secondary'
         )}
       >
-        <Laptop className="w-3.5 h-3.5 text-accent-teal" />
+        <Laptop className="w-3.5 h-3.5 text-accent-teal shrink-0" />
         <span>System</span>
       </button>
     </div>

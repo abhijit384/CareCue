@@ -4,7 +4,7 @@
 
 Gemini acts as an **independent cross-check** in CareCue's multi-agent pipeline:
 - **Primary Extraction & Interpretation**: Amazon Bedrock (Claude 3.5 Sonnet / Haiku).
-- **Independent Verification**: Google Gemini (`gemini-2.5-flash`).
+- **Independent Verification**: Google Gemini (`gemini-3.5-flash`).
 - **Consensus & Evidence Validation**: CareCue Verification Engine.
 
 > **CRITICAL DISCLAIMER**:
@@ -68,5 +68,5 @@ CareCue defines four unambiguous verification states:
 - **Secrets Manager Secret**: `carecue/dev/gemini` (Key: `GEMINI_API_KEY`)
 - **Lambda Environment**: `GEMINI_SECRET_NAME: carecue/dev/gemini` (no plaintext secret values in environment variables)
 - **IAM Policy**: Least-privilege `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:carecue/dev/gemini*`
-- **Gemini Model**: `gemini-2.5-flash` (Free Tier, 15 RPM / 1,500 RPD)
+- **Gemini Model**: `gemini-3.5-flash` (Free Tier, 15 RPM / 1,500 RPD)
 - **Zero Spending Guarantee**: Google billing is NOT enabled; in-memory caching ensures zero repeated Secrets Manager read charges.

@@ -30,16 +30,28 @@ def handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]:
     file_name = body.get("fileName", "report.pdf")
     file_type = body.get("fileType", "application/pdf")
     file_size = body.get("fileSizeBytes", 100000)
+    patient_id = body.get("patientId") # If uploading directly to patient
 
-    if not session_id:
-        return response(400, {"error": {"code": "MISSING_SESSION_ID", "message": "Session ID required"}})
+    if not session_id and not patient_id:
+        return response(400, {"error": {"code": "MISSING_SESSION_ID", "message": "Session ID or Patient ID required"}})
 
     err = document_service.validate_upload_request(file_name, file_type, file_size)
     if err:
         return response(400, {"error": {"code": "VALIDATION_FAILED", "message": err}})
 
     document_id = f"doc-{int(time.time() * 1000)}"
-    s3_key = f"sessions/{session_id}/documents/{document_id}.pdf"
+    
+    # Extract extension based on file_type or file_name
+    ext = "pdf"
+    if file_type == "image/jpeg" or file_name.lower().endswith((".jpg", ".jpeg")):
+        ext = "jpg"
+    elif file_type == "image/png" or file_name.lower().endswith(".png"):
+        ext = "png"
+        
+    if patient_id:
+        s3_key = f"patients/{patient_id}/documents/{document_id}.{ext}"
+    else:
+        s3_key = f"sessions/{session_id}/documents/{document_id}.{ext}"
 
     # Attempt S3 presigned PUT URL generation
     upload_url = None

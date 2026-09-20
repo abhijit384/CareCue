@@ -19,9 +19,9 @@ const STATUS_CONFIG: Record<DualAIStatus, {
   iconBg: string;
 }> = {
   consistent: {
-    label: 'Dual Consensus Aligned',
+    label: 'Clinical Consensus Aligned',
     badge: '✓ CONSISTENT',
-    desc: 'Both Amazon Bedrock and Google Gemini verified the extracted findings and reference boundaries.',
+    desc: 'Primary extraction and verification engines independently validated all clinical findings and reference bounds.',
     icon: CheckCircle2,
     cardClass: 'bg-status-consistent-bg/60 border-status-consistent/30 text-status-consistent',
     iconBg: 'bg-accent-teal text-text-inverse',
@@ -29,7 +29,7 @@ const STATUS_CONFIG: Record<DualAIStatus, {
   needs_review: {
     label: 'Clinical Review Recommended',
     badge: '⚠ NEEDS REVIEW',
-    desc: 'Interpretations flagged unusual lab variance or mild model variance — prepared as priority talking points for your doctor.',
+    desc: 'Interpretations flagged unusual lab variance or clinical divergence — prepared as priority talking points for your doctor.',
     icon: AlertTriangle,
     cardClass: 'bg-status-review-bg/60 border-status-review/30 text-status-review',
     iconBg: 'bg-status-review text-text-inverse',
@@ -53,20 +53,20 @@ export function DualAIPanel({ initialStatus = 'consistent', className }: DualAIP
     <div className={cn('text-center space-y-6 sm:space-y-8 max-w-xl mx-auto px-4 perspective-1000', className)}>
       <div>
         <span className="text-xs font-bold uppercase tracking-widest text-text-tertiary block mb-1">
-          Multi-Agent Architecture
+          Dual-Layer Clinical Architecture
         </span>
         <h2 className="text-xl sm:text-2xl font-bold text-text-primary tracking-tight">
-          Dual-AI Verification
+          Clinical Verification
         </h2>
         <p className="text-xs sm:text-sm text-text-secondary mt-1 max-w-md mx-auto leading-relaxed">
-          Critical findings extracted by Bedrock are independently cross-checked against Gemini to detect consensus or discrepancies.
+          Critical findings extracted from your medical records are independently cross-checked against source evidence.
         </p>
       </div>
 
       <div className="relative">
         {/* Two Floating AI Source Panels with 3D Depth */}
         <div className="grid grid-cols-2 gap-4 sm:gap-6 mb-4">
-          {/* 1. Amazon Bedrock Primary Analysis */}
+          {/* 1. Primary Clinical Extraction */}
           <motion.div
             initial={{ opacity: 0, y: -16, rotateY: -6 }}
             animate={{ opacity: 1, y: 0, rotateY: 0 }}
@@ -80,17 +80,17 @@ export function DualAIPanel({ initialStatus = 'consistent', className }: DualAIP
               PRIMARY ENGINE
             </span>
             <h3 className="text-sm sm:text-base font-bold text-text-primary">
-              Amazon Bedrock
+              Clinical Extraction
             </h3>
             <p className="text-xs text-text-tertiary mt-1 leading-normal">
-              Extracts biomarkers & reference ranges from clinical text.
+              Extracts biomarkers, doses & reference intervals.
             </p>
 
             {/* Connecting Convergence Line */}
             <div className="w-0.5 h-6 sm:h-8 bg-gradient-to-b from-accent-teal to-transparent mx-auto mt-4" />
           </motion.div>
 
-          {/* 2. Google Gemini Independent Verification */}
+          {/* 2. Grounded Verification Engine */}
           <motion.div
             initial={{ opacity: 0, y: -16, rotateY: 6 }}
             animate={{ opacity: 1, y: 0, rotateY: 0 }}
@@ -101,13 +101,13 @@ export function DualAIPanel({ initialStatus = 'consistent', className }: DualAIP
               <Sparkles className="w-5 h-5" />
             </div>
             <span className="text-[10px] font-bold tracking-widest uppercase text-ai-lavender-dark block mb-0.5">
-              CROSS-CHECK ENGINE
+              VERIFICATION LAYER
             </span>
             <h3 className="text-sm sm:text-base font-bold text-text-primary">
-              Google Gemini
+              Source Fact-Check
             </h3>
             <p className="text-xs text-text-tertiary mt-1 leading-normal">
-              Independently assesses entity context & medical bounds.
+              Independently verifies entity context & medical boundaries.
             </p>
 
             {/* Connecting Convergence Line */}

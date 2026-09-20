@@ -18,41 +18,51 @@ export function HeroDepthVisual() {
     return !prefersReducedMotion && !isTouch;
   });
 
+  const [isHovered, setIsHovered] = useState(false);
+
   // Mouse coordinate values for desktop cursor parallax
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
 
   // Smooth springs for high-end damped motion
-  const springX = useSpring(mouseX, { stiffness: 120, damping: 25 });
-  const springY = useSpring(mouseY, { stiffness: 120, damping: 25 });
+  const springX = useSpring(mouseX, { stiffness: 100, damping: 30 });
+  const springY = useSpring(mouseY, { stiffness: 100, damping: 30 });
 
-  // 3D Rotation transforms (subtle, restrained, no crazy flipping)
-  const rotateX = useTransform(springY, [-0.5, 0.5], [7, -7]);
-  const rotateY = useTransform(springX, [-0.5, 0.5], [-9, 9]);
+  // 3D Rotation transforms (capped to 5deg for restraint)
+  const rotateX = useTransform(springY, [-0.5, 0.5], [5, -5]);
+  const rotateY = useTransform(springX, [-0.5, 0.5], [-5, 5]);
 
   // Layer offsets creating optical depth (z-layers)
-  const panel1X = useTransform(springX, [-0.5, 0.5], [-14, 14]);
-  const panel1Y = useTransform(springY, [-0.5, 0.5], [-10, 10]);
+  const panel1X = useTransform(springX, [-0.5, 0.5], [-10, 10]);
+  const panel1Y = useTransform(springY, [-0.5, 0.5], [-8, 8]);
 
-  const panel2X = useTransform(springX, [-0.5, 0.5], [-6, 6]);
-  const panel2Y = useTransform(springY, [-0.5, 0.5], [-5, 5]);
+  const panel2X = useTransform(springX, [-0.5, 0.5], [-4, 4]);
+  const panel2Y = useTransform(springY, [-0.5, 0.5], [-4, 4]);
 
-  const panel3X = useTransform(springX, [-0.5, 0.5], [8, -8]);
-  const panel3Y = useTransform(springY, [-0.5, 0.5], [6, -6]);
+  const panel3X = useTransform(springX, [-0.5, 0.5], [6, -6]);
+  const panel3Y = useTransform(springY, [-0.5, 0.5], [4, -4]);
 
-  const panel4X = useTransform(springX, [-0.5, 0.5], [12, -12]);
-  const panel4Y = useTransform(springY, [-0.5, 0.5], [10, -10]);
+  const panel4X = useTransform(springX, [-0.5, 0.5], [10, -10]);
+  const panel4Y = useTransform(springY, [-0.5, 0.5], [8, -8]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isInteractive || !containerRef.current) return;
+    setIsHovered(true);
     const rect = containerRef.current.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width - 0.5;
     const y = (e.clientY - rect.top) / rect.height - 0.5;
     mouseX.set(x);
     mouseY.set(y);
+
+    // Glow position
+    const glowX = e.clientX - rect.left;
+    const glowY = e.clientY - rect.top;
+    containerRef.current.style.setProperty('--x', `${glowX}px`);
+    containerRef.current.style.setProperty('--y', `${glowY}px`);
   };
 
   const handleMouseLeave = () => {
+    setIsHovered(false);
     mouseX.set(0);
     mouseY.set(0);
   };
@@ -62,7 +72,7 @@ export function HeroDepthVisual() {
       ref={containerRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      className="relative w-full max-w-2xl mx-auto py-10 px-4 perspective-1200 select-none"
+      className="relative w-full max-w-2xl mx-auto py-10 px-4 perspective-1200 select-none cursor-glow"
     >
       {/* Soft Ambient Depth Glows */}
       <div className="absolute top-1/2 left-1/4 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-accent-teal/15 dark:bg-accent-teal/20 rounded-full blur-3xl pointer-events-none" />
@@ -71,8 +81,8 @@ export function HeroDepthVisual() {
       {/* Main 3D Tilted Card Container */}
       <motion.div
         style={{
-          rotateX: isInteractive ? rotateX : 0,
-          rotateY: isInteractive ? rotateY : 0,
+          rotateX: isInteractive && isHovered ? rotateX : 0,
+          rotateY: isInteractive && isHovered ? rotateY : 0,
           transformStyle: 'preserve-3d',
         }}
         initial={{ opacity: 0, scale: 0.94 }}
@@ -132,8 +142,8 @@ export function HeroDepthVisual() {
         <div className="p-3 rounded-xl bg-accent-teal-light/50 dark:bg-accent-teal-light/20 border border-accent-teal/20 flex items-center justify-between text-xs">
           <div className="flex items-center gap-2 text-text-secondary">
             <Sparkles className="w-3.5 h-3.5 text-accent-teal" />
-            <span className="font-semibold text-text-primary">Consensus Synthesis:</span>
-            <span>Bedrock & Gemini interpretations aligned</span>
+            <span className="font-semibold text-text-primary">Clinical Verification:</span>
+            <span>Observations aligned with source evidence</span>
           </div>
           <span className="text-accent-teal-dark font-bold text-[11px]">4 / 6 Verified</span>
         </div>
@@ -143,10 +153,12 @@ export function HeroDepthVisual() {
         {/* 1. SOURCE PANEL (Top Left) */}
         <motion.div
           style={{
-            x: isInteractive ? panel1X : 0,
-            y: isInteractive ? panel1Y : 0,
+            x: isInteractive && isHovered ? panel1X : 0,
+            y: isInteractive && isHovered ? panel1Y : 0,
             translateZ: 40,
           }}
+          animate={!isHovered && isInteractive ? { y: [0, -3, 0] } : {}}
+          transition={{ repeat: Infinity, duration: 4, ease: "easeInOut", delay: 0 }}
           className="absolute -top-5 -left-3 sm:-left-6 p-2.5 rounded-xl bg-bg-surface border border-border-default shadow-lg flex items-center gap-2 text-xs font-semibold text-text-primary z-20"
         >
           <div className="w-6 h-6 rounded-lg bg-bg-secondary flex items-center justify-center text-accent-teal">
@@ -156,17 +168,19 @@ export function HeroDepthVisual() {
             <span className="text-[9px] uppercase font-bold tracking-wider text-text-tertiary block">
               Stage 1: Source
             </span>
-            <span className="text-[11px]">MRN: [ID] · Lab CBC</span>
+            <span className="text-[11px]">Direct Document Parsing</span>
           </div>
         </motion.div>
 
         {/* 2. ANALYSIS PANEL (Top Right) */}
         <motion.div
           style={{
-            x: isInteractive ? panel2X : 0,
-            y: isInteractive ? panel2Y : 0,
+            x: isInteractive && isHovered ? panel2X : 0,
+            y: isInteractive && isHovered ? panel2Y : 0,
             translateZ: 50,
           }}
+          animate={!isHovered && isInteractive ? { y: [0, 4, 0] } : {}}
+          transition={{ repeat: Infinity, duration: 5, ease: "easeInOut", delay: 1 }}
           className="absolute -top-5 -right-3 sm:-right-6 p-2.5 rounded-xl bg-bg-surface border border-border-default shadow-lg flex items-center gap-2 text-xs font-semibold text-text-primary z-20"
         >
           <div className="w-6 h-6 rounded-lg bg-accent-teal-light text-accent-teal flex items-center justify-center">
@@ -176,17 +190,19 @@ export function HeroDepthVisual() {
             <span className="text-[9px] uppercase font-bold tracking-wider text-text-tertiary block">
               Stage 2: Analysis
             </span>
-            <span className="text-[11px]">Amazon Bedrock Extraction</span>
+            <span className="text-[11px]">Clinical Biomarker Extraction</span>
           </div>
         </motion.div>
 
         {/* 3. VERIFICATION PANEL (Bottom Left) */}
         <motion.div
           style={{
-            x: isInteractive ? panel3X : 0,
-            y: isInteractive ? panel3Y : 0,
+            x: isInteractive && isHovered ? panel3X : 0,
+            y: isInteractive && isHovered ? panel3Y : 0,
             translateZ: 60,
           }}
+          animate={!isHovered && isInteractive ? { y: [0, -4, 0] } : {}}
+          transition={{ repeat: Infinity, duration: 4.5, ease: "easeInOut", delay: 0.5 }}
           className="absolute -bottom-5 -left-3 sm:-left-4 p-2.5 rounded-xl bg-bg-surface border border-border-default shadow-lg flex items-center gap-2 text-xs font-semibold text-text-primary z-20"
         >
           <div className="w-6 h-6 rounded-lg bg-ai-lavender-light text-ai-lavender flex items-center justify-center">
@@ -196,17 +212,19 @@ export function HeroDepthVisual() {
             <span className="text-[9px] uppercase font-bold tracking-wider text-text-tertiary block">
               Stage 3: Verification
             </span>
-            <span className="text-[11px]">Gemini Model Cross-Check</span>
+            <span className="text-[11px]">Dual-Layer Fact Check</span>
           </div>
         </motion.div>
 
         {/* 4. NEXT STEP PANEL (Bottom Right) */}
         <motion.div
           style={{
-            x: isInteractive ? panel4X : 0,
-            y: isInteractive ? panel4Y : 0,
+            x: isInteractive && isHovered ? panel4X : 0,
+            y: isInteractive && isHovered ? panel4Y : 0,
             translateZ: 35,
           }}
+          animate={!isHovered && isInteractive ? { y: [0, 3, 0] } : {}}
+          transition={{ repeat: Infinity, duration: 3.5, ease: "easeInOut", delay: 1.5 }}
           className="absolute -bottom-5 -right-3 sm:-right-4 p-2.5 rounded-xl bg-bg-surface border border-border-default shadow-lg flex items-center gap-2 text-xs font-semibold text-text-primary z-20"
         >
           <div className="w-6 h-6 rounded-lg bg-bg-secondary flex items-center justify-center text-text-primary">

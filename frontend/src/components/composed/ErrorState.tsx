@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle, RefreshCw, Sparkles, ArrowLeft } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/composed/Button';
 
 export type ErrorVariant = 'upload_failed' | 'verification_unavailable' | 'session_unavailable' | 'general';
 
@@ -70,33 +71,36 @@ export function ErrorState({
 
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
         {onRetry && (
-          <button
+          <Button
+            variant="primary"
             onClick={onRetry}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-accent-teal text-text-inverse font-medium text-sm hover:bg-accent-teal-dark transition-colors shadow-sm cursor-pointer"
+            leftIcon={<RefreshCw className="w-4 h-4" />}
+            className="w-full sm:w-auto"
           >
-            <RefreshCw className="w-4 h-4" />
             Try Again
-          </button>
+          </Button>
         )}
 
         {onDemoFallback && (
-          <button
+          <Button
+            variant="secondary"
             onClick={onDemoFallback}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-bg-secondary border border-border-default text-text-primary font-medium text-sm hover:bg-bg-primary transition-colors cursor-pointer"
+            leftIcon={<Sparkles className="w-4 h-4 text-ai-lavender" />}
+            className="w-full sm:w-auto bg-bg-secondary hover:bg-bg-primary"
           >
-            <Sparkles className="w-4 h-4 text-ai-lavender" />
             Use Demo Mode
-          </button>
+          </Button>
         )}
 
         {onBack && (
-          <button
+          <Button
+            variant="ghost"
             onClick={onBack}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-border-default text-text-secondary font-medium text-sm hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
+            leftIcon={<ArrowLeft className="w-4 h-4" />}
+            className="w-full sm:w-auto"
           >
-            <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
-          </button>
+          </Button>
         )}
       </div>
     </motion.div>

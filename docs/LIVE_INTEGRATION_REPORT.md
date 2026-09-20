@@ -27,7 +27,7 @@ All 35 pytest unit/integration tests and all 8 live audit verification gates pas
 | **S3 Storage Bucket** | `carecue-documents-dev-*` | Private S3 Bucket with 7-day automatic lifecycle expiration |
 | **DynamoDB Sessions Table** | `carecue-sessions-dev` | On-Demand (`PAY_PER_REQUEST`) with automatic 30-day TTL item cleanup |
 | **Primary AI Model** | `anthropic.claude-3-5-sonnet-20241022-v2:0` (Amazon Bedrock) | Clinical document comprehension, biomarker extraction, and patient summaries |
-| **Verification Cross-Check** | `gemini-2.5-flash` (Google Gemini Free Tier) | Independent evidence grounding verification (15 RPM / 1,500 RPD free quota) |
+| **Verification Cross-Check** | `gemini-3.5-flash` (Google Gemini Free Tier) | Independent evidence grounding verification (15 RPM / 1,500 RPD free quota) |
 
 ---
 
@@ -101,7 +101,7 @@ A comprehensive repository and asset scan was performed via `scripts/secret_scan
 ## 6. Cost-Safety & Zero-Idle-Cost Verification
 
 1. **Google Gemini Free-Tier Quota Bounds:**
-   - Model: `gemini-2.5-flash` (strictly Free Tier).
+   - Model: `gemini-3.5-flash` (strictly Free Tier).
    - Google billing is **NOT enabled** and payment methods are never attached.
    - Max Requests Per Session: Capped at **5 requests** in `gemini_service.py`.
    - Max Input Character Size: Capped at **4,000 characters**.

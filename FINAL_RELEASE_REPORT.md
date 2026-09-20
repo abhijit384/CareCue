@@ -10,7 +10,7 @@
 - **Phase**: Stage 5 Complete (Production Readiness, Security Audit, E2E QA, Performance, Best UI Polish).
 - **Frontend Architecture**: React 19, TypeScript, Vite 8, Tailwind CSS v4, Framer Motion, Lucide React icons.
 - **Backend Architecture**: Serverless AWS Lambda (Python 3.12), Amazon HTTP API Gateway (v2), Amazon S3 (Ephemeral 7-day auto-expiration), Amazon DynamoDB (On-Demand PAY_PER_REQUEST, 30-day TTL).
-- **Dual-AI Consensus Engine**: Amazon Bedrock (`claude-3-5-sonnet` / `claude-3-haiku`) for clinical document comprehension; Google Gemini (`gemini-2.5-flash`) for independent evidence cross-checking.
+- **Dual-AI Consensus Engine**: Amazon Bedrock (`claude-3-5-sonnet` / `claude-3-haiku`) for clinical document comprehension; Google Gemini (`gemini-3.5-flash`) for independent evidence cross-checking.
 
 ---
 
@@ -45,7 +45,7 @@
 
 ## 4. AI Models & Guardrails
 - **Primary AI Model**: Amazon Bedrock — `anthropic.claude-3-5-sonnet-20241022-v2:0`
-- **Independent Verification Model**: Google Gemini — `gemini-2.5-flash`
+- **Independent Verification Model**: Google Gemini — `gemini-3.5-flash`
 - **Consensus Calculation**:
   - `CONSISTENT`: Both models agree and claim is grounded in verbatim document text.
   - `NEEDS_REVIEW`: Value mismatch, range mismatch, or ungrounded claim.

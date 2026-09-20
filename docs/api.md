@@ -304,3 +304,145 @@ Cross-checks Bedrock-extracted findings against Google Gemini (Free Tier) and so
   "safetyIssues": []
 }
 ```
+
+---
+
+## 7. Simple-Language Explanation API
+
+### `POST /explain`
+Generates non-diagnostic, structured plain-language explanations with Standard vs. Beginner depth and question prompts.
+
+**Request Body:**
+```json
+{
+  "findingTitle": "Fasting Blood Glucose",
+  "value": "118 mg/dL",
+  "referenceRange": "70 - 99 mg/dL",
+  "sourceQuote": "Fasting Blood Glucose: 118 mg/dL (Reference: 70 - 99 mg/dL)",
+  "level": "standard" // or "beginner"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "findingTitle": "Fasting Blood Glucose",
+  "level": "standard",
+  "explainedSimply": "Fasting blood glucose measures the amount of sugar in your bloodstream after not eating overnight. Your document records a value of 118 mg/dL.",
+  "whyItAppears": "This measurement appears because it was ordered as part of your laboratory evaluation. Reference intervals for this test typically state 70 - 99 mg/dL.",
+  "whatToDiscuss": [
+    "How does my specific result of 118 mg/dL relate to my overall health and lifestyle?",
+    "Does this value (118 mg/dL) warrant any follow-up re-testing or monitoring over time?",
+    "Are there any specific dietary or daily habits that commonly influence this measurement?"
+  ],
+  "verbatimValue": "118 mg/dL",
+  "verbatimRange": "70 - 99 mg/dL",
+  "sourceQuote": "Fasting Blood Glucose: 118 mg/dL (Reference: 70 - 99 mg/dL)",
+  "safetyDisclaimer": "CareCue explanations are educational and non-diagnostic. Never modify prescribed treatments without physician advice."
+}
+```
+
+---
+
+## 8. Multilingual Translation API
+
+### `POST /translation`
+Translates plain-language medical content into Hindi (`hi`) or Bengali (`bn`) with guaranteed preservation of numbers, units, and ranges.
+
+**Request Body:**
+```json
+{
+  "text": "Hemoglobin is 10.2 g/dL which is below standard range of 12.0 - 16.0 g/dL.",
+  "targetLanguage": "hi",
+  "preserveTerms": ["10.2 g/dL", "12.0 - 16.0 g/dL"]
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "originalText": "Hemoglobin is 10.2 g/dL which is below standard range of 12.0 - 16.0 g/dL.",
+  "targetLanguage": "hi",
+  "translatedText": "हीमोग्लोबिन 10.2 g/dL है जो 12.0 - 16.0 g/dL की सामान्य सीमा से कम है।",
+  "tokensProtected": 2,
+  "cached": false
+}
+```
+
+---
+
+## 9. Emergency Mode & Safety Triage API
+
+### `POST /emergency`
+Evaluates acute symptoms with calm, deterministic clinical triage and compiles an Emergency Information Card.
+
+**Request Body:**
+```json
+{
+  "symptoms": "Severe crushing chest pain radiating to left arm and shortness of breath",
+  "severity": "severe",
+  "duration": "past 30 minutes",
+  "patientId": "pat-rahul-001"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "assessment": {
+    "state": "URGENT_ATTENTION",
+    "calmSummary": "Based on the severe symptoms described, immediate medical evaluation is essential.",
+    "urgentAction": "Please dial emergency services (911 or local emergency) immediately or proceed to the nearest emergency room.",
+    "warningSigns": [
+      "Severe chest pressure or squeezing sensation",
+      "Pain spreading to arm, neck, jaw, or back",
+      "Shortness of breath, cold sweat, or lightheadedness"
+    ],
+    "whatToTellResponders": [
+      "Exact time symptoms started (e.g. 30 minutes ago)",
+      "Any known cardiac history or active medications",
+      "Severity rating and changes in intensity"
+    ]
+  },
+  "emergencyCard": {
+    "patientName": "Rahul Das",
+    "dateOfBirth": "1982-07-14",
+    "emergencyContact": "+1 (555) 234-5678",
+    "reportedSymptoms": "Severe crushing chest pain radiating to left arm and shortness of breath",
+    "duration": "past 30 minutes",
+    "knownConditions": ["Elevated fasting glucose", "Mild hyperlipidemia"],
+    "knownMedications": ["Lifestyle management plan"],
+    "knownAllergies": ["None documented"],
+    "recentVitals": "Glucose 118 mg/dL (Aug 2026), LDL 138 mg/dL (Aug 2026)"
+  }
+}
+```
+
+---
+
+## 10. Patient Management & Record Tracking API
+
+### `GET /patients`
+Retrieves registered patients with optional name/notes query filter.
+
+### `POST /patients`
+Registers a new patient profile.
+
+### `GET /patients/{id}`
+Fetches full demographic profile and record count for a patient.
+
+### `GET /patients/{id}/documents`
+Lists all documents attached to the patient chart with classifications (LAB, PRESCRIPTION, REPORT, DISCHARGE, OTHER).
+
+### `POST /patients/{id}/documents`
+Attaches a new clinical record to an established patient profile.
+
+### `GET /patients/{id}/timeline`
+Fetches chronological multi-document history with conservative biomarker comparisons.
+
+### `POST /documents/identify-patient`
+Extracts candidate patient names and birth dates from raw document text.
+
+### `POST /documents/match-patient`
+Compares extracted patient name against active target patient or full roster returning `EXACT_NAME_MATCH`, `LIKELY_MATCH`, `DIFFERENT_PATIENT`, or `NO_MATCH`.
+

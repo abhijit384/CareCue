@@ -26,15 +26,21 @@ def test_session_request_capping():
         source_page=1,
     )
 
-    # Perform MAX_REQUESTS_PER_SESSION calls
-    for _ in range(MAX_REQUESTS_PER_SESSION):
-        resp = service.verify_finding(payload, session_id=session_id)
-        assert resp is not None
+    mock_client = MagicMock()
+    mock_interaction = MagicMock()
+    mock_interaction.output_text = '{"verification": {"status": "CONSISTENT", "evidence_supported": true, "value_matches": true, "overstatement_detected": false, "uncertainty_required": false}, "issues": [], "reasoning_summary": "Consistent."}'
+    mock_client.interactions.create.return_value = mock_interaction
 
-    # (MAX + 1)th call must trigger the cap and use deterministic local consensus
-    capped_resp = service.verify_finding(payload, session_id=session_id)
-    assert capped_resp.status in (VerificationOutcome.CONSISTENT, VerificationOutcome.NEEDS_REVIEW)
-    assert service._session_request_counts[session_id] == MAX_REQUESTS_PER_SESSION
+    with patch.object(service, "_get_genai_client", return_value=mock_client):
+        # Perform MAX_REQUESTS_PER_SESSION calls
+        for _ in range(MAX_REQUESTS_PER_SESSION):
+            resp = service.verify_finding(payload, session_id=session_id)
+            assert resp is not None
+
+        # (MAX + 1)th call must trigger the cap and use deterministic local consensus
+        capped_resp = service.verify_finding(payload, session_id=session_id)
+        assert capped_resp.status in (VerificationOutcome.CONSISTENT, VerificationOutcome.NEEDS_REVIEW)
+        assert service._session_request_counts[session_id] == MAX_REQUESTS_PER_SESSION
 
 
 def test_audit_log_hygiene_no_health_data_or_keys():
@@ -50,21 +56,27 @@ def test_audit_log_hygiene_no_health_data_or_keys():
         source_page=1,
     )
 
-    service.verify_finding(payload, session_id=session_id)
-    audit_logs = service.get_audit_log()
+    mock_client = MagicMock()
+    mock_interaction = MagicMock()
+    mock_interaction.output_text = '{"verification": {"status": "CONSISTENT"}, "issues": [], "reasoning_summary": "Verified."}'
+    mock_client.interactions.create.return_value = mock_interaction
 
-    assert len(audit_logs) >= 1
-    recent_entry = [entry for entry in audit_logs if entry["sessionId"] == session_id][-1]
+    with patch.object(service, "_get_genai_client", return_value=mock_client):
+        service.verify_finding(payload, session_id=session_id)
+        audit_logs = service.get_audit_log()
 
-    # Verify audit record does NOT store sensitive health or prompt text
-    entry_str = str(recent_entry)
-    assert secret_marker not in entry_str
-    assert "source_excerpt" not in recent_entry
-    assert "finding" not in recent_entry
-    assert "AIzaSy" not in entry_str
-    assert "verificationStatus" in recent_entry
-    assert "requestSize" in recent_entry
-    assert "responseSize" in recent_entry
+        assert len(audit_logs) >= 1
+        recent_entry = [entry for entry in audit_logs if entry["sessionId"] == session_id][-1]
+
+        # Verify audit record does NOT store sensitive health or prompt text
+        entry_str = str(recent_entry)
+        assert secret_marker not in entry_str
+        assert "source_excerpt" not in recent_entry
+        assert "finding" not in recent_entry
+        assert "AIzaSy" not in entry_str
+        assert "verificationStatus" in recent_entry
+        assert "requestSize" in recent_entry
+        assert "responseSize" in recent_entry
 
 
 def test_rate_limit_429_circuit_breaking():
@@ -80,7 +92,9 @@ def test_rate_limit_429_circuit_breaking():
     )
 
     mock_client = MagicMock()
-    mock_client.models.generate_content.side_effect = Exception("429 ResourceExhausted: Quota exceeded for model gemini-2.5-flash")
+    quota_exc = Exception("429 ResourceExhausted: Quota exceeded for model gemini-3.5-flash")
+    mock_client.interactions.create.side_effect = quota_exc
+    mock_client.models.generate_content.side_effect = quota_exc
 
     with patch.object(service, "_get_genai_client", return_value=mock_client):
         resp = service.verify_finding(payload, session_id=session_id)

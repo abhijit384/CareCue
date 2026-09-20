@@ -12,12 +12,15 @@ import {
   AlertTriangle,
   X,
   RefreshCw,
+  Users,
+  ChevronDown,
 } from 'lucide-react';
 import { sessionService } from '@/services';
 import type { CareSession } from '@/lib/types';
 import { EmptyState } from '@/components/composed/EmptyState';
 import { ErrorState } from '@/components/composed/ErrorState';
 import { formatTime } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Helper to group sessions by relative day
 function groupSessionsByDay(sessions: CareSession[]) {
@@ -50,17 +53,26 @@ function groupSessionsByDay(sessions: CareSession[]) {
 
 export function History() {
   const navigate = useNavigate();
+  const { patients, activePatient, setActivePatient } = useAuth();
+  const effectiveActivePatient = activePatient || (patients.length > 0 ? patients[0] : null);
+
   const [sessions, setSessions] = useState<CareSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<CareSession | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const loadSessions = async () => {
+  const loadSessions = async (pId?: string) => {
+    const targetId = pId || effectiveActivePatient?.patientId;
+    if (!targetId) {
+      setSessions([]);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
-      const data = await sessionService.list();
+      const data = await sessionService.list(targetId);
       setSessions(data);
     } catch (_err) {
       console.error(_err);
@@ -71,8 +83,13 @@ export function History() {
   };
 
   useEffect(() => {
-    loadSessions();
-  }, []);
+    if (effectiveActivePatient?.patientId) {
+      loadSessions(effectiveActivePatient.patientId);
+    } else {
+      setSessions([]);
+      setLoading(false);
+    }
+  }, [effectiveActivePatient?.patientId]);
 
   const handleDeleteConfirm = async () => {
     if (!sessionToDelete) return;
@@ -131,17 +148,41 @@ export function History() {
             History & Records
           </h1>
           <p className="text-sm text-text-secondary mt-1">
-            Review past summaries, doctor briefs, and verification logs.
+            Clinical history and verification logs for <strong>{effectiveActivePatient?.name || 'selected patient'}</strong>.
           </p>
         </div>
 
-        <Link
-          to="/session/new"
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent-teal text-text-inverse font-medium text-sm hover:bg-accent-teal-dark transition-colors shadow-sm no-underline shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          New Session
-        </Link>
+        <div className="flex items-center gap-2.5">
+          {patients.length > 1 && effectiveActivePatient && (
+            <div className="relative">
+              <select
+                value={effectiveActivePatient.patientId}
+                onChange={e => {
+                  const target = patients.find(p => p.patientId === e.target.value);
+                  if (target) setActivePatient(target);
+                }}
+                aria-label="Select Patient for History"
+                className="appearance-none pl-8 pr-7 py-2 rounded-xl bg-bg-surface border border-border-default text-xs font-bold text-text-primary focus:outline-hidden focus:border-accent-teal cursor-pointer shadow-2xs"
+              >
+                {patients.map(p => (
+                  <option key={p.patientId} value={p.patientId}>
+                    {p.name} {p.relationship ? `(${p.relationship})` : ''}
+                  </option>
+                ))}
+              </select>
+              <Users className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-text-muted absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          )}
+
+          <Link
+            to="/session/new"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent-teal text-text-inverse font-medium text-sm hover:bg-accent-teal-dark transition-colors shadow-sm no-underline shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            New Session
+          </Link>
+        </div>
       </div>
 
       {/* Loading state with timeline skeletons */}

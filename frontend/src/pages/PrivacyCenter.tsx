@@ -325,11 +325,11 @@ export function PrivacyCenter() {
             Data Lifecycle & Deletion
           </span>
           <h2 className="text-lg font-bold text-text-primary mt-0.5 mb-2">
-            Session Controls
+            Patient Vault Controls
           </h2>
           <p className="text-sm text-text-secondary mb-6 leading-relaxed">
-            You maintain full sovereignty over your demonstration session. Trigger instantaneous
-            purging of temporary memory and cached representations.
+            You maintain full sovereignty over your patient sessions and stored medical records. Trigger instantaneous
+            purging of temporary memory, documents, and cached representations.
           </p>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -342,22 +342,13 @@ export function PrivacyCenter() {
             </button>
             <button
               onClick={() => {
-                setDocuments([
-                  {
-                    id: 'doc-001',
-                    name: 'Sample_Blood_Panel.pdf',
-                    size: '142 KB',
-                    uploadedAt: 'Just now',
-                    minimizedFields: 5,
-                    status: 'minimized',
-                  },
-                ]);
-                triggerToast('Synthetic demo environment reset.');
+                setDocuments([]);
+                triggerToast('Local cache and workspace reset.');
               }}
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-border-default text-text-primary hover:bg-bg-secondary text-xs font-semibold transition-colors cursor-pointer"
             >
               <RefreshCw className="w-4 h-4 text-text-secondary" />
-              Reset Demo Environment
+              Clear Workspace Cache
             </button>
           </div>
         </div>
@@ -368,7 +359,7 @@ export function PrivacyCenter() {
             Architectural Guarantees
           </span>
           <h2 className="text-lg font-bold text-text-primary mt-0.5 mb-4">
-            Security & Privacy Approach
+            Security & Privacy Standards
           </h2>
 
           <div className="space-y-4 text-xs sm:text-sm text-text-secondary leading-relaxed">
@@ -403,13 +394,13 @@ export function PrivacyCenter() {
             </div>
           </div>
 
-          {/* Compliance notice adhering to strict guidelines */}
+          {/* Compliance notice */}
           <div className="mt-6 p-4 rounded-xl bg-bg-secondary border border-border-subtle text-xs text-text-tertiary leading-relaxed">
             <div className="flex items-center gap-1.5 font-semibold text-text-secondary mb-1">
               <AlertCircle className="w-3.5 h-3.5 text-text-tertiary" />
-              Prototype Disclosure Notice
+              CareCue Medical Information Notice
             </div>
-            This software is an engineering hackathon prototype designed to demonstrate privacy-first architecture principles. It does not claim formal HIPAA certification or zero-data retention on cloud intermediaries. Always consult your provider for official medical records handling.
+            CareCue operates as a patient empowerment and educational comprehension platform. It strictly isolates clinical documents to your account and preserves verbatim health records without diagnosing or altering medical plans. Always consult your qualified healthcare professional for medical diagnosis, treatment, and clinical decisions.
           </div>
         </div>
       </div>

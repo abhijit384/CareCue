@@ -132,7 +132,7 @@ export function CareGuidance() {
           <Loader2 className="w-8 h-8 text-accent-teal animate-spin mx-auto mb-3" />
           <h3 className="text-sm font-bold text-text-primary">Cross-checking informational sources</h3>
           <p className="text-xs text-text-secondary mt-1">
-            Analyzing phrasing with Bedrock and validating context with Gemini...
+            Analyzing clinical phrasing and validating context against medical records...
           </p>
         </motion.div>
       )}
@@ -162,10 +162,10 @@ export function CareGuidance() {
                 <div className="flex items-center justify-between mb-3 pb-2 border-b border-border-subtle">
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-accent-teal-dark bg-accent-teal-light px-2.5 py-0.5 rounded-md">
-                      Dual-AI Verified Guidance
+                      Verified Clinical Guidance
                     </span>
                   </div>
-                  <span className="text-xs text-text-tertiary">Bedrock + Gemini</span>
+                  <span className="text-xs text-text-tertiary">CareCue Intelligence</span>
                 </div>
                 <p className="text-sm text-text-primary leading-relaxed">{response.answer}</p>
               </div>

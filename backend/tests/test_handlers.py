@@ -66,6 +66,7 @@ def test_upload_url_generation():
 
 
 def test_process_analysis_pipeline():
+    from unittest.mock import patch
     session_id = "cc-sess-proc-test"
     # Pre-create session
     session_handler({
@@ -88,14 +89,45 @@ def test_process_analysis_pipeline():
             "userNotes": "Felt fatigued lately",
         }),
     }
-    resp = process_handler(event)
-    assert resp["statusCode"] == 200
-    body = json.loads(resp["body"])
-    assert body["sessionId"] == session_id
-    assert "findings" in body
-    assert len(body["findings"]) >= 1
-    assert "overallConfidence" in body
-    assert body["piiRedactedCount"] >= 1
+    with patch("backend.handlers.process_handler.analyze_document_with_bedrock") as mock_b:
+        mock_b.return_value = [
+            {
+                "id": "insight-1",
+                "category": "Metabolic Panel",
+                "claim": "Fasting Blood Glucose is elevated",
+                "explanation": "Glucose level is 118 mg/dL.",
+                "value": "118",
+                "unit": "mg/dL",
+                "referenceRange": "70 - 99",
+                "rangeStatus": "outside_range",
+                "source": {"text": "Fasting Blood Glucose: 118 mg/dL (70-99)", "page": 1},
+                "verification": {"status": "consistent"}
+            }
+        ]
+        mock_findings = [
+            {
+                "id": "insight-1",
+                "category": "Metabolic Panel",
+                "claim": "Fasting Blood Glucose is elevated",
+                "explanation": "Glucose level is 118 mg/dL.",
+                "value": "118",
+                "unit": "mg/dL",
+                "referenceRange": "70 - 99",
+                "rangeStatus": "outside_range",
+                "source": {"text": "Fasting Blood Glucose: 118 mg/dL (70-99)", "page": 1},
+                "verification": {"status": "consistent"}
+            }
+        ]
+        with patch("backend.handlers.process_handler.verification_engine.verify_findings") as mock_v:
+            mock_v.return_value = (mock_findings, {"consistent": 1, "needsReview": 0, "safetyRedirect": 0})
+            resp = process_handler(event)
+            assert resp["statusCode"] == 200
+            body = json.loads(resp["body"])
+            assert body["sessionId"] == session_id
+            assert "findings" in body
+            assert len(body["findings"]) >= 1
+            assert "overallConfidence" in body
+            assert body["piiRedactedCount"] >= 1
 
 
 def test_brief_compilation():
@@ -157,6 +189,7 @@ def test_guidance_benign_question():
 
 
 def test_verification_handler_execution():
+    from unittest.mock import patch
     from backend.handlers.verification_handler import lambda_handler as verification_handler
 
     event = {
@@ -176,11 +209,32 @@ def test_verification_handler_execution():
             "sourceText": "Fasting Blood Glucose: 118 mg/dL (Reference: 70 - 99 mg/dL)",
         }),
     }
-    resp = verification_handler(event)
-    assert resp["statusCode"] == 200
-    body = json.loads(resp["body"])
-    assert body["status"] in ("CONSISTENT", "NEEDS_REVIEW")
-    assert "summary" in body
-    assert body["summary"]["totalInsights"] == 1
-    assert len(body["findings"]) == 1
+    mock_findings = [
+        {
+            "id": "f-test-1",
+            "title": "Metabolic Panel — Fasting Glucose",
+            "plainLanguageSummary": "Fasting glucose is 118 mg/dL.",
+            "clinicalSignificance": "Value: 118 mg/dL (Reference: 70 - 99 mg/dL)",
+            "sourceQuote": "Fasting Blood Glucose: 118 mg/dL",
+            "sourcePage": 1,
+            "verification": {"status": "consistent"}
+        }
+    ]
+    summary = {
+        "totalInsights": 1,
+        "consistent": 1,
+        "needsReview": 0,
+        "safetyRedirects": 0,
+        "evidenceGrounded": 1,
+        "discrepancies": []
+    }
+    with patch("backend.handlers.verification_handler.verification_engine.verify_findings") as mock_vf:
+        mock_vf.return_value = (mock_findings, summary)
+        resp = verification_handler(event)
+        assert resp["statusCode"] == 200
+        body = json.loads(resp["body"])
+        assert body["status"] in ("CONSISTENT", "NEEDS_REVIEW")
+        assert "summary" in body
+        assert body["summary"]["totalInsights"] == 1
+        assert len(body["findings"]) == 1
 

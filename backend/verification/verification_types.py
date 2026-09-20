@@ -22,6 +22,10 @@ class GeminiVerificationPayload:
     source_excerpt: str
     source_page: int
 
+    @property
+    def finding_statement(self) -> str:
+        return self.finding
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "finding_id": self.finding_id,
@@ -35,13 +39,39 @@ class GeminiVerificationPayload:
 @dataclass
 class GeminiVerificationResponse:
     """Structured response parsed from Gemini verification."""
-    status: VerificationOutcome
-    evidence_supported: bool
-    value_matches: bool
-    overstatement_detected: bool
-    uncertainty_required: bool
-    issues: List[str]
-    reasoning_summary: str
+    status: VerificationOutcome = VerificationOutcome.CONSISTENT
+    evidence_supported: bool = True
+    value_matches: bool = True
+    overstatement_detected: bool = False
+    uncertainty_required: bool = False
+    issues: List[str] = field(default_factory=list)
+    reasoning_summary: str = ""
+    model_version: str = "gemini-3.5-flash"
+
+    def __init__(
+        self,
+        status: Optional[VerificationOutcome] = None,
+        outcome: Optional[VerificationOutcome] = None,
+        evidence_supported: bool = True,
+        value_matches: bool = True,
+        overstatement_detected: bool = False,
+        uncertainty_required: bool = False,
+        issues: Optional[List[str]] = None,
+        reasoning_summary: str = "",
+        model_version: str = "gemini-3.5-flash",
+    ):
+        self.status = outcome or status or VerificationOutcome.CONSISTENT
+        self.evidence_supported = evidence_supported
+        self.value_matches = value_matches
+        self.overstatement_detected = overstatement_detected
+        self.uncertainty_required = uncertainty_required
+        self.issues = issues or []
+        self.reasoning_summary = reasoning_summary
+        self.model_version = model_version
+
+    @property
+    def outcome(self) -> VerificationOutcome:
+        return self.status
 
 @dataclass
 class ConsensusReport:

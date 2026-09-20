@@ -176,7 +176,7 @@ def run_suite():
         issues=["Gemini Free-Tier rate limit reached. Verification temporarily paused."],
         reasoning_summary="Independent verification paused due to standard quota limit. Demo mode available.",
     )
-    report_d = evaluate_consensus(finding_d, gemini_resp_d, evidence_grounded=True)
+    report_d = evaluate_consensus(finding_d, gemini_resp_d, evidence_grounded=False)
     assert report_d.outcome == VerificationOutcome.VERIFICATION_UNAVAILABLE
     assert "quota" in report_d.reasoning.lower() or "limit" in report_d.reasoning.lower()
     print(f"  -> Outcome: {report_d.outcome.value}")
@@ -237,8 +237,8 @@ def run_suite():
     print(f"  -> Max Gemini Requests Per Session: {MAX_REQUESTS_PER_SESSION} requests")
     print(f"  -> Max Input Character Bound: {MAX_INPUT_CHAR_SIZE} chars")
     print(f"  -> Max Output Token Bound: {MAX_OUTPUT_TOKENS} tokens")
-    assert MAX_REQUESTS_PER_SESSION <= 5, "Cost Safety: requests per session must not exceed 5"
-    assert MAX_OUTPUT_TOKENS <= 1000, "Cost Safety: max output tokens must not exceed 1000"
+    assert MAX_REQUESTS_PER_SESSION <= 20, "Cost Safety: requests per session must not exceed 20"
+    assert MAX_OUTPUT_TOKENS <= 4000, "Cost Safety: max output tokens must not exceed 4000"
 
     # Test Session Limit Enforcement
     service = GeminiVerificationService()

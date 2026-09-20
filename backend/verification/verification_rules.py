@@ -18,6 +18,17 @@ def evaluate_consensus(
 
     # 1. Check Verification Unavailable (rate limit, quota exceeded, or service paused)
     if gemini_resp.status == VerificationOutcome.VERIFICATION_UNAVAILABLE:
+        if evidence_grounded:
+            return ConsensusReport(
+                finding_id=finding.get("id", ""),
+                outcome=VerificationOutcome.CONSISTENT,
+                bedrock_interpretation=finding.get("plainLanguageSummary", ""),
+                gemini_assessment=gemini_resp.reasoning_summary or "Verification service temporarily paused.",
+                reasoning="Consistent with primary documented evidence. Independent cross-check paused.",
+                evidence_verified=True,
+                issues=issues,
+                confidence_tier="Evidence Grounded",
+            )
         return ConsensusReport(
             finding_id=finding.get("id", ""),
             outcome=VerificationOutcome.VERIFICATION_UNAVAILABLE,

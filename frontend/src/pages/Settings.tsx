@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Settings as SettingsIcon,
@@ -9,38 +9,88 @@ import {
   Sparkles,
   CheckCircle2,
   Info,
+  BadgeCheck,
+  Heart,
+  FolderHeart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/lib/theme';
 import { Sun } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 export function Settings() {
+  const { user, activePatient, patients, isAuthenticated, openAuthModal } = useAuth();
+
+  // Compute default display name from authenticated user or active patient
+  const defaultDisplayName = user
+    ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email
+    : (activePatient?.name || 'CareCue User');
+
   // Profile state
-  const [userName, setUserName] = useState('Jane Sample (Demo)');
-  const [caregiverMode, setCaregiverMode] = useState(false);
+  const [userName, setUserName] = useState(() => {
+    return localStorage.getItem('carecue_custom_display_name') || defaultDisplayName;
+  });
+
+  const [caregiverMode, setCaregiverMode] = useState(() => {
+    return localStorage.getItem('carecue_caregiver_mode') === 'true';
+  });
+
+  // Sync display name when user or active patient changes if not manually overridden
+  useEffect(() => {
+    const saved = localStorage.getItem('carecue_custom_display_name');
+    if (!saved) {
+      setUserName(defaultDisplayName);
+    }
+  }, [defaultDisplayName]);
 
   // Preferences
-  const [readingLevel, setReadingLevel] = useState<'plain' | 'clinical'>('plain');
-  const [autoOpenEvidence, setAutoOpenEvidence] = useState(true);
+  const [readingLevel, setReadingLevel] = useState<'plain' | 'clinical'>(() => {
+    return (localStorage.getItem('carecue_reading_level') as any) || 'plain';
+  });
+  const [autoOpenEvidence, setAutoOpenEvidence] = useState(() => {
+    const saved = localStorage.getItem('carecue_auto_open_evidence');
+    return saved !== null ? saved === 'true' : true;
+  });
 
   // Accessibility
-  const [highContrast, setHighContrast] = useState(false);
-  const [largeText, setLargeText] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const [highContrast, setHighContrast] = useState(() => {
+    return localStorage.getItem('carecue_high_contrast') === 'true';
+  });
+  const [largeText, setLargeText] = useState(() => {
+    return localStorage.getItem('carecue_large_text') === 'true';
+  });
+  const [reducedMotion, setReducedMotion] = useState(() => {
+    return localStorage.getItem('carecue_reduced_motion') === 'true';
+  });
 
   // Privacy preferences
-  const [autoClearOnExit, setAutoClearOnExit] = useState(true);
-  const [strictMinimization, setStrictMinimization] = useState(true);
+  const [autoClearOnExit, setAutoClearOnExit] = useState(() => {
+    const saved = localStorage.getItem('carecue_auto_clear');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [strictMinimization, setStrictMinimization] = useState(() => {
+    const saved = localStorage.getItem('carecue_strict_min');
+    return saved !== null ? saved === 'true' : true;
+  });
 
   const [savedToast, setSavedToast] = useState(false);
 
   const handleSave = () => {
+    localStorage.setItem('carecue_custom_display_name', userName);
+    localStorage.setItem('carecue_caregiver_mode', String(caregiverMode));
+    localStorage.setItem('carecue_reading_level', readingLevel);
+    localStorage.setItem('carecue_auto_open_evidence', String(autoOpenEvidence));
+    localStorage.setItem('carecue_high_contrast', String(highContrast));
+    localStorage.setItem('carecue_large_text', String(largeText));
+    localStorage.setItem('carecue_reduced_motion', String(reducedMotion));
+    localStorage.setItem('carecue_auto_clear', String(autoClearOnExit));
+    localStorage.setItem('carecue_strict_min', String(strictMinimization));
     setSavedToast(true);
     setTimeout(() => setSavedToast(false), 3000);
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-5 sm:px-8 py-6 sm:py-8">
+    <div className="w-full max-w-[960px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 box-border">
       {/* Save confirmation toast */}
       <AnimatePresence>
         {savedToast && (
@@ -66,30 +116,83 @@ export function Settings() {
           Settings
         </h1>
         <p className="text-sm text-text-secondary mt-1">
-          Customize display readability, privacy boundaries, and demonstration behavior.
+          Customize display readability, health profiles, privacy boundaries, and clinical preferences.
         </p>
       </div>
 
       <div className="space-y-6">
-        {/* ─── 1. PROFILE ─── */}
+        {/* ─── 1. PROFILE & ACCOUNT ─── */}
         <div className="bg-bg-surface border border-border-default rounded-2xl p-6 shadow-xs">
-          <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-border-subtle">
-            <User className="w-4 h-4 text-accent-teal" />
-            <h2 className="text-base font-bold text-text-primary">Profile & Role</h2>
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-border-subtle">
+            <div className="flex items-center gap-2.5">
+              <User className="w-4 h-4 text-accent-teal" />
+              <h2 className="text-base font-bold text-text-primary">Profile & Account</h2>
+            </div>
+            {isAuthenticated && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent-teal/10 text-accent-teal-dark text-[11px] font-semibold border border-accent-teal/20">
+                <BadgeCheck className="w-3 h-3 text-accent-teal" />
+                Verified Account
+              </span>
+            )}
           </div>
 
           <div className="space-y-4">
-            <div>
-              <label className="text-xs font-semibold text-text-secondary block mb-1.5">
-                Display Name (Mock Profile)
-              </label>
-              <input
-                type="text"
-                value={userName}
-                onChange={e => setUserName(e.target.value)}
-                className="w-full max-w-md px-3.5 py-2 text-sm rounded-xl border border-border-default bg-bg-primary text-text-primary focus:outline-hidden focus:border-accent-teal"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-semibold text-text-secondary block mb-1.5">
+                  Your Display Name
+                </label>
+                <input
+                  type="text"
+                  value={userName}
+                  onChange={e => setUserName(e.target.value)}
+                  placeholder="Enter your name"
+                  className="w-full px-3.5 py-2 text-sm rounded-xl border border-border-default bg-bg-primary text-text-primary focus:outline-hidden focus:border-accent-teal"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-text-secondary block mb-1.5">
+                  Account Email
+                </label>
+                <div className="px-3.5 py-2 text-sm rounded-xl border border-border-subtle bg-bg-secondary/50 text-text-primary flex items-center justify-between">
+                  <span className="truncate">{user?.email || 'Local Offline Vault'}</span>
+                  {!isAuthenticated && (
+                    <button
+                      type="button"
+                      onClick={() => openAuthModal('signin')}
+                      className="text-xs font-bold text-accent-teal hover:underline ml-2 cursor-pointer shrink-0"
+                    >
+                      Sign In →
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
+
+            {/* Active Health Profile Indicator */}
+            {activePatient && (
+              <div className="p-3.5 rounded-xl bg-accent-teal-light/30 border border-accent-teal/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-accent-teal/15 text-accent-teal-dark flex items-center justify-center shrink-0">
+                    <Heart className="w-4 h-4 text-accent-teal" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-text-primary">
+                        Active Health Chart: {activePatient.name}
+                      </span>
+                      <span className="text-[10px] px-2 py-0.2 rounded bg-accent-teal/20 text-accent-teal-dark font-semibold">
+                        {activePatient.relationship || 'Self'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-text-secondary mt-0.5">
+                      Patient ID: <code className="font-mono text-[10px]">{activePatient.patientId}</code> · {activePatient.documentCount || 0} attached records
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between pt-2">
               <div>
@@ -357,36 +460,20 @@ export function Settings() {
           </div>
         </div>
 
-        {/* ─── 5. DEMO MODE ─── */}
-        <div className="bg-bg-surface border border-accent-teal/30 rounded-2xl p-6 shadow-xs">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-border-subtle">
-            <div className="flex items-center gap-2.5">
-              <Sparkles className="w-4 h-4 text-ai-lavender" />
-              <h2 className="text-base font-bold text-text-primary">Hackathon Demo Mode</h2>
-            </div>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-status-review-bg text-status-review">
-              DEMO MODE ACTIVE
-            </span>
-          </div>
-
-          <p className="text-xs sm:text-sm text-text-secondary leading-relaxed mb-5">
-            Demo Mode injects synthetic, verified CBC and lipid panel datasets. Real cloud model calls to AWS Bedrock and Gemini are simulated with deterministic timings for presentation stability.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
-            <div className="flex items-center gap-2 text-xs text-text-tertiary">
+        {/* ─── 5. SAVE & PERSISTENCE ─── */}
+        <div className="bg-bg-surface border border-border-default rounded-2xl p-6 shadow-xs">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-xs text-text-secondary">
               <Info className="w-4 h-4 text-accent-teal shrink-0" />
-              Synthetic blood panel loaded as active fixture
+              <span>All preferences are stored securely on your local device vault.</span>
             </div>
 
             <button
               type="button"
-              onClick={() => {
-                handleSave();
-              }}
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-accent-teal text-text-inverse text-xs font-semibold hover:bg-accent-teal-dark transition-colors shadow-xs cursor-pointer"
+              onClick={handleSave}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-accent-teal text-text-inverse text-xs font-bold hover:bg-accent-teal-dark transition-colors shadow-xs cursor-pointer"
             >
-              Save Settings
+              Save Preferences
             </button>
           </div>
         </div>

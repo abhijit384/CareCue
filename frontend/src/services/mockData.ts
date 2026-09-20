@@ -3,7 +3,16 @@
    All data is synthetic and for demonstration purposes only.
    ═══════════════════════════════════════════════════════════════ */
 
-import type { CareSession, AnalysisResult, DoctorBrief, GuidanceResponse, PrivacyGatewayResult } from '@/lib/types';
+import type {
+  CareSession,
+  AnalysisResult,
+  DoctorBrief,
+  GuidanceResponse,
+  PrivacyGatewayResult,
+  Patient,
+  PatientDocument,
+  ExplanationResult,
+} from '@/lib/types';
 
 export const MOCK_SESSIONS: CareSession[] = [
   {
@@ -266,4 +275,158 @@ export const UNSAFE_KEYWORDS = [
   'prescribe', 'medication', 'medicine', 'drug', 'dosage',
   'diagnose', 'diagnosis', 'treatment', 'cure',
   'should i take', 'what medicine', 'what drug',
+];
+
+/* ─── Mock Patients & Multi-Document Data ─── */
+
+export const MOCK_PATIENTS: Patient[] = [
+  {
+    patientId: 'PAT-A1B2C3D4',
+    name: 'Rahul Das',
+    dateOfBirth: '1982-07-14',
+    phone: '+1 (555) 234-5678',
+    email: 'rahul.das@example.com',
+    notes: 'Annual executive metabolic & lipid checkup',
+    createdAt: '2026-08-10T10:00:00Z',
+    updatedAt: new Date().toISOString(),
+    documentCount: 2,
+    bloodGroup: 'O+',
+    severeAllergies: ['Penicillin'],
+    currentMedications: ['Atorvastatin 10mg'],
+    importantConditions: ['Mild Hypertension'],
+    emergencyContact: {
+      name: 'Priya Das',
+      phone: '+1 (555) 345-6789',
+      relationship: 'Spouse',
+    },
+  },
+  {
+    patientId: 'PAT-E5F6G7H8',
+    name: 'Emily Davis',
+    dateOfBirth: '1990-05-15',
+    phone: '+1 (555) 876-5432',
+    email: 'emily.davis@example.com',
+    notes: 'Evaluation for fatigue & iron markers',
+    createdAt: '2026-09-02T09:00:00Z',
+    updatedAt: new Date().toISOString(),
+    documentCount: 1,
+    bloodGroup: 'A-',
+    severeAllergies: ['Peanuts'],
+    currentMedications: ['Iron Supplement'],
+    importantConditions: ['Anemia'],
+  },
+];
+
+export const MOCK_PATIENT_DOCUMENTS: Record<string, PatientDocument[]> = {
+  'PAT-A1B2C3D4': [
+    {
+      documentId: 'doc-rahul-01',
+      patientId: 'PAT-A1B2C3D4',
+      documentType: 'lab_report',
+      displayName: 'Metabolic Panel Aug 2026',
+      originalFileName: 'Metabolic_Panel_Aug2026.pdf',
+      mimeType: 'application/pdf',
+      createdAt: '2026-08-10T10:15:00Z',
+      sourceReference: 'City Care Pathology',
+      status: 'verified',
+      findingsCount: 4,
+      summary: 'Mild glycemic elevation (Glucose: 118 mg/dL) with elevated LDL (138 mg/dL).',
+    },
+    {
+      documentId: 'doc-rahul-02',
+      patientId: 'PAT-A1B2C3D4',
+      documentType: 'prescription',
+      displayName: 'Lipid Care Guidance',
+      originalFileName: 'Lipid_Care_Guidance_Aug2026.pdf',
+      mimeType: 'application/pdf',
+      createdAt: '2026-08-15T14:30:00Z',
+      sourceReference: 'Dr. Sarah Jenkins',
+      status: 'verified',
+      findingsCount: 2,
+      summary: 'Lifestyle & dietary modification guidance with 3-month follow-up.',
+    },
+  ],
+  'PAT-E5F6G7H8': [
+    {
+      documentId: 'doc-emily-01',
+      patientId: 'PAT-E5F6G7H8',
+      documentType: 'lab_report',
+      displayName: 'CBC Iron Panel Sep 2026',
+      originalFileName: 'CBC_Iron_Panel_Sep2026.pdf',
+      mimeType: 'application/pdf',
+      createdAt: '2026-09-02T09:30:00Z',
+      sourceReference: 'Metro Health Laboratory',
+      status: 'verified',
+      findingsCount: 3,
+      summary: 'Hemoglobin 10.2 g/dL (ref: 12-16) and Ferritin 14 ng/mL indicate low iron stores.',
+    },
+  ],
+};
+
+/* ─── Mock Clinical Explanations ─── */
+
+export const MOCK_EXPLANATIONS: Record<string, { standard: ExplanationResult; beginner: ExplanationResult }> = {
+  default: {
+    standard: {
+      findingTitle: 'Hemoglobin',
+      level: 'standard',
+      explainedSimply: 'Hemoglobin is a protein in your blood that helps carry oxygen around your body. Your document records a value of 10.2 g/dL.',
+      whyItAppears: 'This measurement appears because it was ordered as part of your laboratory evaluation. Your report quotes: "Hemoglobin 10.2 g/dL 12.0 – 16.0 LOW". Reference intervals for this test typically state 12.0 – 16.0 g/dL.',
+      whatToDiscuss: [
+        'How does my specific result of 10.2 g/dL relate to my overall health and lifestyle?',
+        'Does this value (10.2 g/dL) warrant any follow-up re-testing or monitoring over time?',
+        'Are there any specific dietary or daily habits that commonly influence this measurement?',
+      ],
+      verbatimValue: '10.2 g/dL',
+      verbatimRange: '12.0 – 16.0 g/dL',
+      disclaimer: 'CareCue explanations are informational only and never constitute a medical diagnosis or prescription. Discuss all results directly with your physician.',
+    },
+    beginner: {
+      findingTitle: 'Hemoglobin',
+      level: 'beginner',
+      explainedSimply: 'Hemoglobin (often shortened to Hb) is the iron-rich protein that gives blood its red color and acts like a delivery truck carrying oxygen to all your tissues. Your document records a value of 10.2 g/dL.',
+      whyItAppears: 'This measurement appears because it was ordered as part of your laboratory evaluation. Your report quotes: "Hemoglobin 10.2 g/dL 12.0 – 16.0 LOW". Reference intervals for this test typically state 12.0 – 16.0 g/dL.',
+      whatToDiscuss: [
+        'Could mild tiredness be connected to my hemoglobin reading of 10.2 g/dL?',
+        'Are there iron-rich foods or habits we should discuss before testing again?',
+        'When would you like to re-check this blood count?',
+      ],
+      verbatimValue: '10.2 g/dL',
+      verbatimRange: '12.0 – 16.0 g/dL',
+      disclaimer: 'CareCue explanations are informational only and never constitute a medical diagnosis or prescription. Discuss all results directly with your physician.',
+    },
+  },
+};
+
+/* ─── Mock Translations (Hindi & Bengali) ─── */
+
+export const MOCK_TRANSLATIONS: Record<string, Record<string, string>> = {
+  hi: {
+    'Hemoglobin is a protein in your blood that helps carry oxygen around your body.': 'हीमोग्लोबिन आपके रक्त में एक प्रोटीन है जो पूरे शरीर में ऑक्सीजन पहुंचाने में मदद करता है।',
+    'Your report shows a hemoglobin value of 10.2 g/dL.': 'आपकी रिपोर्ट में हीमोग्लोबिन का मान 10.2 g/dL दर्ज है।',
+    'Consistent with the supplied evidence across primary analysis and independent cross-check.': 'प्राथमिक विश्लेषण और स्वतंत्र क्रॉस-चेक दोनों में उपलब्ध साक्ष्य के अनुरूप है।',
+    'Fasting Blood Glucose: 118 mg/dL': 'फास्टिंग ब्लड ग्लूकोज: 118 mg/dL',
+    'Doctor Visit Brief': 'डॉक्टर विज़िट संक्षिप्त विवरण',
+    'Key Findings': 'मुख्य निष्कर्ष',
+    'Discussion Items': 'चर्चा के बिंदु',
+  },
+  bn: {
+    'Hemoglobin is a protein in your blood that helps carry oxygen around your body.': 'হিমোগ্লোবিন আপনার রক্তের একটি প্রোটিন যা সারা শরীরে অক্সিজেন বহন করতে সাহায্য করে।',
+    'Your report shows a hemoglobin value of 10.2 g/dL.': 'আপনার রিপোর্টে হিমোগ্লোবিনের মান 10.2 g/dL দেওয়া আছে।',
+    'Consistent with the supplied evidence across primary analysis and independent cross-check.': 'প্রাথমিক विश्लेषण এবং স্বতন্ত্র যাচাই উভয় ক্ষেত্রেই প্রদত্ত প্রমাণের সাথে সামঞ্জস্যপূর্ণ।',
+    'Fasting Blood Glucose: 118 mg/dL': 'ফাস্টিং ব্লাড গ্লুকোজ: 118 mg/dL',
+    'Doctor Visit Brief': 'ডাক্তার ভিজিট সংক্ষিপ্ত বিবরণী',
+    'Key Findings': 'মূল ফলাফলসমূহ',
+    'Discussion Items': 'আলোচনার বিষয়বস্তু',
+  },
+};
+
+/* ─── Mock Emergency Quick Examples & Responses ─── */
+
+export const MOCK_EMERGENCY_EXAMPLES = [
+  { id: 'ex-1', label: 'Severe chest discomfort', query: 'Experiencing sudden pressure and tight chest discomfort radiating to left arm' },
+  { id: 'ex-2', label: 'Severe breathing difficulty', query: 'Struggling to catch breath even while resting and feeling dizzy' },
+  { id: 'ex-3', label: 'Loss of consciousness', query: 'Briefly passed out after standing up, feeling confused' },
+  { id: 'ex-4', label: 'Heavy sudden bleeding', query: 'Uncontrolled bleeding from a deep cut that won\'t stop with pressure' },
+  { id: 'ex-5', label: 'Sudden speech / facial numbness', query: 'Sudden weakness on one side of face and difficulty speaking clearly' },
 ];

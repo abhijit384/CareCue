@@ -7,7 +7,7 @@ An intelligent, privacy-first healthcare companion that bridges the gap between 
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
 [![AWS Serverless](https://img.shields.io/badge/AWS-Serverless-orange.svg)](https://aws.amazon.com/serverless/)
 [![Amazon Bedrock](https://img.shields.io/badge/Bedrock-Claude_3.5_Sonnet-blue.svg)](https://aws.amazon.com/bedrock/)
-[![Google Gemini](https://img.shields.io/badge/Gemini-2.5_Flash_Verification-purple.svg)](https://ai.google.dev/)
+[![Google Gemini](https://img.shields.io/badge/Gemini-3.5_Flash_Verification-purple.svg)](https://ai.google.dev/)
 [![Tests: 35 Passed](https://img.shields.io/badge/Tests-35%20Passed-brightgreen.svg)](backend/tests/)
 
 ---
@@ -122,7 +122,7 @@ Medical reports, laboratory panels, and discharge summaries are notoriously diff
          │
          │                               ┌─────────────────────────────┐
          └─────────────────────────────> │   GOOGLE GEMINI             │
-            Independent Verification     │   (gemini-2.5-flash)        │
+            Independent Verification     │   (gemini-3.5-flash)        │
             (Excerpt Check Only)         └─────────────────────────────┘
 ```
 
@@ -266,7 +266,7 @@ VITE_APP_ENV=development
 CareCue was built using:
 - **Google Antigravity IDE**: Autonomous agentic coding environment for architecture, TypeScript typing, UI design tokens, AWS SAM templates, and end-to-end testing.
 - **Amazon Bedrock (Claude 3.5 Sonnet / Haiku)**: Foundation model comprehension engine.
-- **Google Gemini (gemini-2.5-flash)**: Independent verification cross-checker.
+- **Google Gemini (gemini-3.5-flash)**: Independent verification cross-checker.
 
 ---
 

@@ -14,8 +14,8 @@ Under no circumstances should the project:
 ## 2. Selected Free-Tier Model & Limits
 
 ### Model Selection
-- **Default Model**: `gemini-2.5-flash` (or `gemini-1.5-flash`)
-- **Environment Variable**: `GEMINI_MODEL_ID` (defaults to `gemini-2.5-flash`)
+- **Default Model**: `gemini-3.5-flash`
+- **Environment Variable**: `GEMINI_MODEL_ID` (defaults to `gemini-3.5-flash`)
 - **SDK**: Official `google-genai` Python SDK (`from google import genai`)
 
 ### Free-Tier Quota & Rate Limits

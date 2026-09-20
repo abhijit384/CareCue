@@ -27,7 +27,7 @@ import boto3
 from typing import Dict, Any, Optional
 
 from backend.privacy.privacy_service import redact_for_cloud
-from backend.document.pdf_extractor import extract_text_from_pdf_bytes
+from backend.document.document_service import DocumentService
 from backend.services.bedrock_service import analyze_document_with_bedrock
 from backend.verification.comparison_service import DualAIVerificationEngine
 from backend.security.prompt_injection import sanitize_untrusted_document_content
@@ -46,6 +46,7 @@ s3_client = None
 session_store = SessionStore()
 verification_engine = DualAIVerificationEngine()
 output_safety_filter = OutputSafetyFilter()
+document_service = DocumentService()
 
 
 def _get_s3_client():
@@ -119,10 +120,17 @@ def handle_start_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
         try:
             s3 = _get_s3_client()
             obj = s3.get_object(Bucket=bucket_name, Key=s3_key)
-            pdf_bytes = obj["Body"].read()
-            extracted = extract_text_from_pdf_bytes(pdf_bytes)
+            file_bytes = obj["Body"].read()
+            mime_type = obj.get("ContentType", "application/pdf")
+            
+            if mime_type.startswith("image/") or s3_key.lower().endswith((".jpg", ".jpeg", ".png")):
+                extracted = document_service.process_image_bytes(file_bytes, mime_type)
+            else:
+                extracted = document_service.process_pdf_bytes(file_bytes)
+                
             document_text = extracted.full_text
-        except Exception:
+        except Exception as e:
+            print(f"Error extracting document text: {e}")
             document_text = None
 
     if not document_text:

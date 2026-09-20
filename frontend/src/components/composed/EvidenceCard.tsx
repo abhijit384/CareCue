@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { VerificationBadge } from './VerificationBadge';
+import { ExplainModal } from './ExplainModal';
 import type { Insight } from '@/lib/types';
 
 interface EvidenceCardProps {
@@ -23,6 +24,7 @@ interface EvidenceCardProps {
 export function EvidenceCard({ insight, index }: EvidenceCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
+  const [explainOpen, setExplainOpen] = useState(false);
 
   return (
     <>
@@ -102,6 +104,16 @@ export function EvidenceCard({ insight, index }: EvidenceCardProps) {
             <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
+                onClick={() => setExplainOpen(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-accent-teal/10 text-accent-teal-dark hover:bg-accent-teal/20 transition-colors cursor-pointer"
+                title="Explain in simple language"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-accent-teal" />
+                <span>Explain</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowDrawer(true)}
                 className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-text-secondary hover:text-accent-teal hover:bg-bg-secondary transition-colors cursor-pointer"
               >
@@ -153,30 +165,30 @@ export function EvidenceCard({ insight, index }: EvidenceCardProps) {
                   </div>
                 </div>
 
-                {/* 2. Dual-AI Consensus Comparison */}
+                {/* 2. Dual-Layer Consensus Comparison */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Bedrock Model */}
+                  {/* Primary Extraction */}
                   <div className="p-3.5 rounded-xl bg-bg-secondary/70 border border-border-subtle">
                     <div className="flex items-center gap-2 mb-1.5">
                       <div className="w-5 h-5 rounded-md bg-accent-teal-light text-accent-teal flex items-center justify-center">
                         <Brain className="w-3 h-3" />
                       </div>
-                      <span className="text-xs font-bold text-text-primary">Amazon Bedrock</span>
-                      <span className="text-[10px] text-text-tertiary font-mono ml-auto">Titan/Claude</span>
+                      <span className="text-xs font-bold text-text-primary">Primary Extraction</span>
+                      <span className="text-[10px] text-text-tertiary font-mono ml-auto">Clinical Engine</span>
                     </div>
                     <p className="text-xs text-text-secondary leading-relaxed">
                       {insight.verification.bedrockInterpretation}
                     </p>
                   </div>
 
-                  {/* Gemini Model */}
+                  {/* Verification Layer */}
                   <div className="p-3.5 rounded-xl bg-ai-lavender-light/30 border border-ai-lavender/20">
                     <div className="flex items-center gap-2 mb-1.5">
                       <div className="w-5 h-5 rounded-md bg-ai-lavender-light text-ai-lavender flex items-center justify-center">
                         <Sparkles className="w-3 h-3" />
                       </div>
-                      <span className="text-xs font-bold text-text-primary">Google Gemini</span>
-                      <span className="text-[10px] text-text-tertiary font-mono ml-auto">Cross-check</span>
+                      <span className="text-xs font-bold text-text-primary">Verification Layer</span>
+                      <span className="text-[10px] text-text-tertiary font-mono ml-auto">Grounded Check</span>
                     </div>
                     <p className="text-xs text-text-secondary leading-relaxed">
                       {insight.verification.geminiAssessment}
@@ -188,7 +200,7 @@ export function EvidenceCard({ insight, index }: EvidenceCardProps) {
                 <div className="p-3.5 rounded-xl bg-accent-teal-light/40 border border-accent-teal/20">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-accent-teal-dark mb-1">
                     <ShieldCheck className="w-3.5 h-3.5 text-accent-teal" />
-                    Dual-Model Consensus Synthesis
+                    Evidence Verification Synthesis
                   </div>
                   <p className="text-xs text-text-secondary leading-relaxed">
                     {insight.verification.reasoning}
@@ -275,6 +287,16 @@ export function EvidenceCard({ insight, index }: EvidenceCardProps) {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Explain in Simple Terms Modal */}
+      <ExplainModal
+        isOpen={explainOpen}
+        onClose={() => setExplainOpen(false)}
+        findingTitle={insight.claim}
+        value={insight.value ? `${insight.value} ${insight.unit || ''}`.trim() : undefined}
+        referenceRange={insight.referenceRange ? `${insight.referenceRange} ${insight.unit || ''}`.trim() : undefined}
+        sourceQuote={insight.source?.text}
+      />
     </>
   );
 }

@@ -12,39 +12,103 @@ import {
   FileSearch,
 } from 'lucide-react';
 import { VerificationBadge } from '@/components/composed/VerificationBadge';
+import { LanguageSelector } from '@/components/composed/LanguageSelector';
 import { EmptyState } from '@/components/composed/EmptyState';
 import { ErrorState } from '@/components/composed/ErrorState';
-import { doctorBriefService } from '@/services';
-import type { DoctorBrief } from '@/lib/types';
+import { Button } from '@/components/composed/Button';
+import { SkeletonDoctorBrief } from '@/components/composed/Skeleton';
+import { useAuth } from '@/contexts/AuthContext';
+import { doctorBriefService, translationService, patientService } from '@/services';
+import type { DoctorBrief, Language, Patient } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 export function DoctorBriefPage() {
   const [searchParams] = useSearchParams();
-  const sessionId = searchParams.get('sessionId') || 'session-001';
+  const { activePatient, patients, setActivePatient } = useAuth();
 
+  const [selectedPatientId, setSelectedPatientId] = useState<string>(activePatient?.patientId || '');
   const [brief, setBrief] = useState<DoctorBrief | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [userNotes, setUserNotes] = useState('');
 
-  const fetchBrief = useCallback(async () => {
+  // Multilingual translation state
+  const [currentLang, setCurrentLang] = useState<Language>('en');
+  const [translating, setTranslating] = useState(false);
+  const [translatedSummary, setTranslatedSummary] = useState<string | null>(null);
+  const [translatedDiscussion, setTranslatedDiscussion] = useState<string[] | null>(null);
+
+  // Sync selected patient
+  useEffect(() => {
+    if (activePatient?.patientId && !selectedPatientId) {
+      setSelectedPatientId(activePatient.patientId);
+    } else if (patients.length > 0 && !selectedPatientId) {
+      setSelectedPatientId(patients[0].patientId);
+      setActivePatient(patients[0]);
+    }
+  }, [activePatient, patients, selectedPatientId, setActivePatient]);
+
+  const loadStoredBrief = useCallback(async (pId: string) => {
+    if (!pId) {
+      setBrief(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-      const data = await doctorBriefService.generate(sessionId);
+      const data = await doctorBriefService.get(pId);
       setBrief(data);
-    } catch (_err) {
-      console.error(_err);
-      setError('Could not generate the doctor brief for this session.');
+    } catch {
+      setBrief(null);
     } finally {
       setLoading(false);
     }
-  }, [sessionId]);
+  }, []);
 
   useEffect(() => {
-    fetchBrief();
-  }, [fetchBrief]);
+    if (selectedPatientId) {
+      loadStoredBrief(selectedPatientId);
+    }
+  }, [selectedPatientId, loadStoredBrief]);
+
+  const handleGenerateBrief = async () => {
+    if (!selectedPatientId) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const data = await doctorBriefService.generate(selectedPatientId, userNotes);
+      setBrief(data);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Could not synthesize the doctor brief. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleLanguageChange = async (lang: Language) => {
+    setCurrentLang(lang);
+    if (lang === 'en' || !brief) {
+      setTranslatedSummary(null);
+      setTranslatedDiscussion(null);
+      return;
+    }
+    setTranslating(true);
+    try {
+      const translatedBrief = await translationService.translateBrief(brief, lang);
+      setTranslatedSummary(translatedBrief.documentSummary);
+      setTranslatedDiscussion(translatedBrief.discussionItems);
+    } catch (e) {
+      console.error('Translation error:', e);
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const activeSummary = translatedSummary || brief?.documentSummary || '';
+  const activeDiscussion = translatedDiscussion || brief?.discussionItems || [];
 
   const handleCopy = () => {
     if (!brief) return;
@@ -53,9 +117,10 @@ export function DoctorBriefPage() {
       'CARECUE DOCTOR VISIT BRIEF (EDUCATIONAL AID)',
       '==========================================',
       `Date: ${brief.sessionDate}`,
+      `Language: ${currentLang.toUpperCase()}`,
       '',
       'SUMMARY',
-      brief.documentSummary,
+      activeSummary,
       '',
       'KEY FINDINGS & OBSERVATIONS',
       ...brief.keyFindings.map(
@@ -63,7 +128,7 @@ export function DoctorBriefPage() {
       ),
       '',
       'RECOMMENDED DISCUSSION QUESTIONS',
-      ...brief.discussionItems.map(d => `? ${d}`),
+      ...activeDiscussion.map(d => `? ${d}`),
       '',
       ...(userNotes ? ['PATIENT NOTES', userNotes, ''] : []),
       'DISCLAIMER',
@@ -80,15 +145,16 @@ export function DoctorBriefPage() {
     const text = [
       'CARECUE DOCTOR VISIT BRIEF',
       `Date: ${brief.sessionDate}`,
+      `Language: ${currentLang.toUpperCase()}`,
       '',
       'DOCUMENT SUMMARY',
-      brief.documentSummary,
+      activeSummary,
       '',
       'KEY FINDINGS',
       ...brief.keyFindings.map(f => `• ${f.finding}: ${f.value} (Range: ${f.range})`),
       '',
       'QUESTIONS TO DISCUSS WITH DOCTOR',
-      ...brief.discussionItems.map(d => `• ${d}`),
+      ...activeDiscussion.map(d => `• ${d}`),
       '',
       ...(userNotes ? ['PATIENT NOTES', userNotes, ''] : []),
       '',
@@ -105,21 +171,19 @@ export function DoctorBriefPage() {
     URL.revokeObjectURL(url);
   };
 
-  if (loading) {
+  if (generating) {
     return (
       <div className="max-w-3xl mx-auto px-5 sm:px-8 py-16 text-center">
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           <div className="w-12 h-12 rounded-2xl bg-accent-teal-light flex items-center justify-center mx-auto">
             <Loader2 className="w-6 h-6 text-accent-teal animate-spin" />
           </div>
-          <h2 className="text-lg font-bold text-text-primary">Preparing Your Doctor Visit Brief</h2>
-          <p className="text-xs sm:text-sm text-text-secondary max-w-sm mx-auto leading-relaxed">
-            Consolidating dual-AI verified findings, outside-range biomarkers, and clinical discussion points...
+          <h2 className="text-lg font-bold text-text-primary">Synthesizing Doctor Visit Brief</h2>
+          <p className="text-xs sm:text-sm text-text-secondary max-w-sm mx-auto leading-relaxed mb-6">
+            Grounded strictly in actual patient records and laboratory markers...
           </p>
-          <div className="max-w-md mx-auto space-y-3 pt-6">
-            <div className="h-6 skeleton rounded-md" />
-            <div className="h-28 skeleton rounded-xl" />
-            <div className="h-32 skeleton rounded-xl" />
+          <div className="text-left mt-6">
+            <SkeletonDoctorBrief />
           </div>
         </motion.div>
       </div>
@@ -133,29 +197,89 @@ export function DoctorBriefPage() {
           variant="session_unavailable"
           title="Doctor Brief Unavailable"
           message={error}
-          onRetry={fetchBrief}
+          onRetry={handleGenerateBrief}
         />
       </div>
     );
   }
 
   if (!brief) {
+    const curP = patients.find(p => p.patientId === selectedPatientId) || activePatient;
     return (
       <div className="max-w-3xl mx-auto px-5 sm:px-8 py-12">
-        <EmptyState
-          icon={<ClipboardList className="w-8 h-8 text-text-tertiary" />}
-          title="No Doctor Brief Generated"
-          description="A doctor visit brief is prepared automatically once you analyze a document or complete a care guidance session."
-          action={
-            <Link
-              to="/session/new"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent-teal text-text-inverse font-medium text-sm no-underline hover:bg-accent-teal-dark transition-colors shadow-sm"
-            >
-              <FileSearch className="w-4 h-4" />
-              Analyze a Report
-            </Link>
-          }
-        />
+        <div className="p-8 rounded-2xl bg-bg-surface border border-border-default shadow-xs text-center space-y-5">
+          <div className="w-14 h-14 rounded-2xl bg-accent-teal/15 text-accent-teal-dark flex items-center justify-center mx-auto">
+            <ClipboardList className="w-7 h-7 text-accent-teal" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-text-primary tracking-tight">
+              Doctor Visit Brief
+            </h2>
+            <p className="text-xs sm:text-sm text-text-secondary max-w-md mx-auto mt-1.5 leading-relaxed">
+              Synthesize an evidence-grounded summary for your doctor appointment based on all stored clinical documents.
+            </p>
+          </div>
+
+          {patients.length > 0 ? (
+            <div className="max-w-md mx-auto space-y-4 text-left">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-text-secondary mb-1">
+                  Target Patient
+                </label>
+                <select
+                  value={selectedPatientId}
+                  onChange={e => {
+                    setSelectedPatientId(e.target.value);
+                    const found = patients.find(p => p.patientId === e.target.value);
+                    if (found) setActivePatient(found);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-bg-primary border border-border-default text-text-primary text-xs font-semibold focus:outline-none focus:border-accent-teal"
+                >
+                  {patients.map(p => (
+                    <option key={p.patientId} value={p.patientId}>
+                      {p.name} ({p.patientId})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-text-secondary mb-1">
+                  Optional Questions or Notes for Doctor
+                </label>
+                <textarea
+                  rows={3}
+                  value={userNotes}
+                  onChange={e => setUserNotes(e.target.value)}
+                  placeholder="e.g. Discuss recent blood sugar trends and fatigue..."
+                  className="w-full px-3 py-2 rounded-xl bg-bg-primary border border-border-default text-text-primary text-xs font-medium focus:outline-none focus:border-accent-teal resize-none"
+                />
+              </div>
+
+              <div className="pt-2 text-center">
+                <button
+                  type="button"
+                  onClick={handleGenerateBrief}
+                  disabled={!selectedPatientId || generating}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-accent-teal text-text-inverse font-bold text-xs hover:bg-accent-teal-dark transition-all shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  <ClipboardList className="w-4 h-4" />
+                  <span>Synthesize Doctor Brief</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="pt-2">
+              <Link
+                to="/session/new"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent-teal text-text-inverse font-bold text-xs no-underline hover:bg-accent-teal-dark transition-colors shadow-xs"
+              >
+                <FileSearch className="w-4 h-4" />
+                <span>Upload a Medical Report First</span>
+              </Link>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -181,30 +305,36 @@ export function DoctorBriefPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-          <button
+        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
+          <LanguageSelector
+            currentLanguage={currentLang}
+            onLanguageChange={handleLanguageChange}
+            size="sm"
+          />
+
+          <Button
+            variant="secondary"
             onClick={handleCopy}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-border-default text-xs font-semibold text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
+            leftIcon={copied ? <CheckCircle2 className="w-3.5 h-3.5 text-accent-teal" /> : <Copy className="w-3.5 h-3.5" />}
           >
-            {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-accent-teal" /> : <Copy className="w-3.5 h-3.5" />}
             {copied ? 'Copied' : 'Copy'}
-          </button>
+          </Button>
 
-          <button
+          <Button
+            variant="secondary"
             onClick={handleDownload}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-border-default text-xs font-semibold text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
+            leftIcon={<Download className="w-3.5 h-3.5" />}
           >
-            <Download className="w-3.5 h-3.5" />
             Save .txt
-          </button>
+          </Button>
 
-          <button
+          <Button
+            variant="primary"
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent-teal text-text-inverse text-xs font-semibold hover:bg-accent-teal-dark transition-colors shadow-xs cursor-pointer"
+            leftIcon={<Printer className="w-3.5 h-3.5" />}
           >
-            <Printer className="w-3.5 h-3.5" />
             Print Brief
-          </button>
+          </Button>
         </div>
       </motion.div>
 
@@ -233,12 +363,26 @@ export function DoctorBriefPage() {
 
         {/* 1. Document Summary */}
         <div className="px-6 sm:px-8 py-5 border-b border-border-subtle">
-          <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-tertiary mb-2">
-            Document Context
-          </h2>
-          <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-            {brief.documentSummary}
-          </p>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
+              Document Context
+            </h2>
+            {currentLang !== 'en' && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent-teal/15 text-accent-teal-dark font-semibold">
+                Translated to {currentLang === 'hi' ? 'हिन्दी' : 'বাংলা'}
+              </span>
+            )}
+          </div>
+          {translating ? (
+            <div className="flex items-center gap-2 text-xs text-text-tertiary py-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-teal" />
+              <span>Translating summary...</span>
+            </div>
+          ) : (
+            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+              {activeSummary}
+            </p>
+          )}
         </div>
 
         {/* 2. Key Findings Table */}
@@ -247,7 +391,7 @@ export function DoctorBriefPage() {
             <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
               Extracted Key Findings ({brief.keyFindings.length})
             </h2>
-            <span className="text-xs text-text-tertiary">Cross-checked with Bedrock & Gemini</span>
+            <span className="text-xs text-text-tertiary">Verified Against Clinical Documents</span>
           </div>
 
           <div className="space-y-3">
@@ -293,19 +437,33 @@ export function DoctorBriefPage() {
 
         {/* 3. Discussion Items */}
         <div className="px-6 sm:px-8 py-5 border-b border-border-subtle">
-          <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-tertiary mb-3">
-            Suggested Talking Points for Your Doctor
-          </h2>
-          <ul className="space-y-2.5">
-            {brief.discussionItems.map((item, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-xs sm:text-sm text-text-secondary leading-relaxed">
-                <span className="w-5 h-5 rounded-full bg-accent-teal-light text-accent-teal-dark flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                  {i + 1}
-                </span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
+              Suggested Talking Points for Your Doctor
+            </h2>
+            {currentLang !== 'en' && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent-teal/15 text-accent-teal-dark font-semibold">
+                Translated
+              </span>
+            )}
+          </div>
+          {translating ? (
+            <div className="flex items-center gap-2 text-xs text-text-tertiary py-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-teal" />
+              <span>Translating discussion points...</span>
+            </div>
+          ) : (
+            <ul className="space-y-2.5">
+              {activeDiscussion.map((item, i) => (
+                <li key={i} className="flex items-start gap-2.5 text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  <span className="w-5 h-5 rounded-full bg-accent-teal-light text-accent-teal-dark flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                    {i + 1}
+                  </span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* 4. Patient Personal Notes */}
