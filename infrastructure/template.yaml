@@ -108,6 +108,8 @@ Resources:
               - GET
               - PUT
               - POST
+              - HEAD
+              - DELETE
             AllowedOrigins:
               - '*'
             MaxAge: 3600
@@ -273,6 +275,18 @@ Resources:
             ApiId: !Ref CareCueHttpApi
             Path: /patients/{id}
             Method: GET
+        PatchPatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}
+            Method: PATCH
+        PutPatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}
+            Method: PUT
         DeletePatient:
           Type: HttpApi
           Properties:
@@ -297,11 +311,59 @@ Resources:
             ApiId: !Ref CareCueHttpApi
             Path: /patients/{id}/documents/{docId}
             Method: DELETE
+        AttachPatientDocument:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/attach-document
+            Method: POST
+        CreatePatientFromDocument:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/from-document
+            Method: POST
         GetPatientTimeline:
           Type: HttpApi
           Properties:
             ApiId: !Ref CareCueHttpApi
             Path: /patients/{id}/timeline
+            Method: GET
+        GetPatientFindings:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/findings
+            Method: GET
+        GetPatientMedications:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/medications
+            Method: GET
+        AddPatientMedication:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/medications
+            Method: POST
+        GetPatientDoctorBrief:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/doctor-brief
+            Method: GET
+        SavePatientDoctorBrief:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/doctor-brief
+            Method: POST
+        GetPatientEmergencyProfile:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /patients/{id}/emergency-profile
             Method: GET
         UpdatePatientEmergencyProfile:
           Type: HttpApi
@@ -320,6 +382,53 @@ Resources:
           Properties:
             ApiId: !Ref CareCueHttpApi
             Path: /documents/match-patient
+            Method: POST
+
+  # Document Upload, S3 Presigned URL & Extraction Pipeline
+  UploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/
+      Handler: handlers.upload_handler.lambda_handler
+      MemorySize: 1024
+      Timeout: 60
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref CareCueDocumentsBucket
+        - S3ReadPolicy:
+            BucketName: !Ref CareCueDocumentsBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CareCueSessionsTable
+      Events:
+        UploadDocument:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /documents/upload
+            Method: POST
+        GetUploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /documents/upload-url
+            Method: POST
+        GetDocument:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /documents/{id}
+            Method: GET
+        GetDocumentText:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /documents/{id}/text
+            Method: GET
+        RetryAnalysis:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /documents/{id}/retry-analysis
             Method: POST
 
   # Session Manager (CRUD sessions)
@@ -358,27 +467,6 @@ Resources:
             ApiId: !Ref CareCueHttpApi
             Path: /sessions/{sessionId}
             Method: DELETE
-
-  # S3 Pre-signed Upload URL Generator
-  UploadFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: ../backend/
-      Handler: handlers.upload_handler.lambda_handler
-      MemorySize: 256
-      Timeout: 10
-      Policies:
-        - S3WritePolicy:
-            BucketName: !Ref CareCueDocumentsBucket
-        - DynamoDBCrudPolicy:
-            TableName: !Ref CareCueSessionsTable
-      Events:
-        GetUploadUrl:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref CareCueHttpApi
-            Path: /documents/upload-url
-            Method: POST
 
   # Document Process & Bedrock Analysis
   ProcessFunction:

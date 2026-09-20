@@ -6,7 +6,13 @@ import re
 import uuid
 import logging
 from typing import Dict, Any, List, Optional
-from .patient_store import PatientStore
+try:
+    from .patient_store import PatientStore
+except ImportError:
+    try:
+        from services.patient_store import PatientStore
+    except ImportError:
+        from backend.services.patient_store import PatientStore
 
 logger = logging.getLogger(__name__)
 

@@ -1,26 +1,23 @@
 """
 backend/handlers/patient_handler.py - Lambda handler for patient management, extraction, and timeline APIs.
-
-Endpoints:
-  - GET /patients: List/search patients
-  - POST /patients: Create new patient manually
-  - GET /patients/{id}: Get patient profile
-  - DELETE /patients/{id}: Delete patient profile
-  - GET /patients/{id}/documents: List documents for patient
-  - POST /patients/{id}/documents: Add document to patient profile
-  - GET /patients/{id}/timeline: Get clinical document timeline
-  - POST /documents/identify-patient: Extract patient info from raw text
-  - POST /documents/match-patient: Compare extracted name with existing patients
 """
 
 import json
 from typing import Dict, Any, Optional
+
 try:
     from backend.services.patient_store import PatientStore
     from backend.services.patient_service import PatientService
+    from backend.database.db import init_db
 except ImportError:
     from services.patient_store import PatientStore
     from services.patient_service import PatientService
+    from database.db import init_db
+
+try:
+    init_db()
+except Exception:
+    pass
 
 CORS_HEADERS = {
     "Content-Type": "application/json",
@@ -32,19 +29,24 @@ CORS_HEADERS = {
 patient_store = PatientStore()
 patient_service = PatientService(patient_store)
 
-def _json_response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:
+
+def _json_response(status_code: int, body: Any) -> Dict[str, Any]:
     return {
         "statusCode": status_code,
         "headers": CORS_HEADERS,
-        "body": json.dumps(body),
+        "body": json.dumps(body) if not isinstance(body, str) else body,
     }
+
 
 def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]:
     http_method = event.get("requestContext", {}).get("http", {}).get("method") or event.get("httpMethod", "GET")
-    path = event.get("rawPath") or event.get("path") or "/patients"
+    path = (event.get("rawPath") or event.get("path") or "/patients").rstrip("/")
 
     if http_method == "OPTIONS":
         return _json_response(200, {"status": "ok"})
+
+    headers = event.get("headers") or {}
+    user_id = headers.get("x-user-id") or headers.get("X-User-Id")
 
     try:
         # Route 1: Identify patient from document text
@@ -55,7 +57,11 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
         if path.endswith("/documents/match-patient") and http_method == "POST":
             return handle_match_patient(event)
 
-        # Route 3: Patient Documents & Timeline
+        # Route 3: Create patient from document
+        if path.endswith("/patients/from-document") and http_method == "POST":
+            return handle_create_from_document(event, user_id=user_id)
+
+        # Route 4: Patient sub-resources (/patients/{id}/...)
         if "/patients/" in path:
             parts = path.split("/patients/")[1].split("/")
             patient_id = parts[0]
@@ -77,12 +83,58 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
                 elif http_method == "POST":
                     return handle_add_document(event, patient_id)
 
+            elif sub_resource == "attach-document" and http_method == "POST":
+                return handle_attach_document(event, patient_id)
+
             elif sub_resource == "timeline" and http_method == "GET":
                 timeline = patient_store.get_patient_timeline(patient_id)
-                return _json_response(200, {"patientId": patient_id, "timeline": timeline})
-                
-            elif sub_resource == "emergency-profile" and http_method == "PUT":
-                return handle_update_emergency_profile(event, patient_id)
+                return _json_response(200, timeline)
+
+            elif sub_resource == "findings" and http_method == "GET":
+                findings = patient_store.get_patient_findings(patient_id)
+                return _json_response(200, findings)
+
+            elif sub_resource == "medications":
+                if http_method == "GET":
+                    meds = patient_store.get_patient_medications(patient_id)
+                    return _json_response(200, meds)
+                elif http_method == "POST":
+                    body_str = event.get("body", "{}")
+                    payload = json.loads(body_str) if isinstance(body_str, str) else body_str
+                    patient = patient_store.get_patient(patient_id)
+                    if not patient:
+                        return _json_response(404, {"error": f"Patient {patient_id} not found"})
+                    curr_meds = patient.get("currentMedications", [])
+                    curr_meds.append(payload)
+                    patient_store.update_patient(patient_id, {"currentMedications": curr_meds})
+                    return _json_response(200, patient_store.get_patient_medications(patient_id))
+
+            elif sub_resource == "doctor-brief":
+                if http_method == "GET":
+                    brief = patient_store.get_doctor_brief(patient_id)
+                    return _json_response(200, brief or {})
+                elif http_method == "POST":
+                    body_str = event.get("body", "{}")
+                    payload = json.loads(body_str) if isinstance(body_str, str) else body_str
+                    brief = patient_store.save_doctor_brief(patient_id, payload)
+                    return _json_response(200, brief)
+
+            elif sub_resource == "emergency-profile":
+                if http_method == "PUT":
+                    return handle_update_emergency_profile(event, patient_id)
+                elif http_method == "GET":
+                    p = patient_store.get_patient(patient_id)
+                    if not p:
+                        return _json_response(404, {"error": f"Patient {patient_id} not found"})
+                    return _json_response(200, {
+                        "patientId": p["patientId"],
+                        "name": p["name"],
+                        "bloodGroup": p.get("bloodGroup"),
+                        "severeAllergies": p.get("severeAllergies", []),
+                        "currentMedications": p.get("currentMedications", []),
+                        "importantConditions": p.get("importantConditions", []),
+                        "emergencyContact": p.get("emergencyContact"),
+                    })
 
             elif not sub_resource:
                 if http_method == "GET":
@@ -90,19 +142,23 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
                     if not p:
                         return _json_response(404, {"error": f"Patient {patient_id} not found"})
                     return _json_response(200, p)
+                elif http_method in ("PATCH", "PUT"):
+                    body_str = event.get("body", "{}")
+                    payload = json.loads(body_str) if isinstance(body_str, str) else body_str
+                    updated = patient_store.update_patient(patient_id, payload)
+                    if not updated:
+                        return _json_response(404, {"error": f"Patient {patient_id} not found"})
+                    return _json_response(200, updated)
                 elif http_method == "DELETE":
                     deleted = patient_store.delete_patient(patient_id)
                     return _json_response(200, {"deleted": deleted})
 
-        # Route 4: Base /patients collection
-        headers = event.get("headers") or {}
-        user_id = headers.get("x-user-id") or headers.get("X-User-Id")
-
+        # Route 5: Base /patients collection
         if http_method == "GET":
             params = event.get("queryStringParameters") or {}
             q = params.get("q")
             patients = patient_store.list_patients(search_query=q, user_id=user_id)
-            return _json_response(200, {"patients": patients, "count": len(patients)})
+            return _json_response(200, patients)
 
         elif http_method == "POST":
             return handle_create_patient(event, user_id=user_id)
@@ -111,6 +167,7 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
 
     except Exception as exc:
         return _json_response(500, {"error": "Patient operation failed", "details": str(exc)})
+
 
 def handle_create_patient(event: Dict[str, Any], user_id: Optional[str] = None) -> Dict[str, Any]:
     body_str = event.get("body", "{}")
@@ -124,6 +181,42 @@ def handle_create_patient(event: Dict[str, Any], user_id: Optional[str] = None) 
         user_id=user_id or payload.get("userId"),
     )
     return _json_response(201, patient)
+
+
+def handle_create_from_document(event: Dict[str, Any], user_id: Optional[str] = None) -> Dict[str, Any]:
+    body_str = event.get("body", "{}")
+    payload = json.loads(body_str) if isinstance(body_str, str) else body_str
+    doc_id = payload.get("documentId")
+    patient_name = payload.get("patientName") or "New Patient"
+    dob = payload.get("dateOfBirth")
+    notes = payload.get("notes", "")
+
+    patient = patient_store.create_patient({
+        "name": patient_name,
+        "dateOfBirth": dob,
+        "notes": notes,
+        "relationship": "Other",
+    }, user_id=user_id or payload.get("userId"))
+
+    if doc_id:
+        patient_store.attach_document_to_patient(doc_id, patient["patientId"])
+
+    return _json_response(201, patient)
+
+
+def handle_attach_document(event: Dict[str, Any], patient_id: str) -> Dict[str, Any]:
+    body_str = event.get("body", "{}")
+    payload = json.loads(body_str) if isinstance(body_str, str) else body_str
+    doc_id = payload.get("documentId")
+    if not doc_id:
+        return _json_response(400, {"error": "documentId is required"})
+
+    doc = patient_store.attach_document_to_patient(doc_id, patient_id)
+    if not doc:
+        return _json_response(404, {"error": f"Document {doc_id} or Patient {patient_id} not found"})
+
+    return _json_response(200, {"success": True, "document": doc, "patientId": patient_id})
+
 
 def handle_add_document(event: Dict[str, Any], patient_id: str) -> Dict[str, Any]:
     body_str = event.get("body", "{}")
@@ -153,12 +246,14 @@ def handle_add_document(event: Dict[str, Any], patient_id: str) -> Dict[str, Any
     except ValueError as e:
         return _json_response(400, {"error": str(e)})
 
+
 def handle_identify_patient(event: Dict[str, Any]) -> Dict[str, Any]:
     body_str = event.get("body", "{}")
     payload = json.loads(body_str) if isinstance(body_str, str) else body_str
     doc_text = payload.get("documentText", "")
     info = patient_service.extract_patient_info_from_text(doc_text)
     return _json_response(200, info)
+
 
 def handle_match_patient(event: Dict[str, Any]) -> Dict[str, Any]:
     body_str = event.get("body", "{}")
@@ -168,6 +263,7 @@ def handle_match_patient(event: Dict[str, Any]) -> Dict[str, Any]:
     target_id = payload.get("targetPatientId")
     match_result = patient_service.match_patient(name, extracted_dob=dob, target_patient_id=target_id)
     return _json_response(200, match_result)
+
 
 def handle_update_emergency_profile(event: Dict[str, Any], patient_id: str) -> Dict[str, Any]:
     body_str = event.get("body", "{}")

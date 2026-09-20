@@ -17,7 +17,18 @@ import time
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+
+try:
+    from pydantic import BaseModel, Field
+except ImportError:
+    class BaseModel:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+        def model_dump(self):
+            return self.__dict__
+    def Field(default=None, description=None, **kwargs):
+        return default
 
 try:
     from verification.verification_types import (

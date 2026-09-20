@@ -213,8 +213,20 @@ class PatientStore:
         structured_json = json.dumps(doc.get("structuredData", {})) if isinstance(doc.get("structuredData"), dict) else doc.get("structured_data_json", "{}")
         evidence_json = json.dumps(doc.get("sourceEvidence", [])) if isinstance(doc.get("sourceEvidence"), list) else doc.get("source_evidence_json", "[]")
 
+        patient_id = doc.get("patientId")
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            if patient_id:
+                cursor.execute("SELECT patient_id FROM patients WHERE patient_id = ?", (patient_id,))
+                if not cursor.fetchone():
+                    user_id = doc.get("userId")
+                    if user_id:
+                        ensure_user_exists(cursor, user_id)
+                    cursor.execute("""
+                    INSERT OR IGNORE INTO patients (patient_id, user_id, name, relationship, created_at, updated_at)
+                    VALUES (?, ?, ?, 'Self', ?, ?);
+                    """, (patient_id, user_id, doc.get("patientName", "Patient"), now, now))
+
             cursor.execute("""
             INSERT INTO documents (
                 document_id, patient_id, original_file_name, display_name,
@@ -314,18 +326,22 @@ class PatientStore:
 
     def attach_document_to_patient(self, document_id: str, patient_id: str) -> Optional[Dict[str, Any]]:
         """Attaches an existing document to a patient, verifying patient existence."""
-        patient = self.get_patient(patient_id)
-        if not patient:
-            return None
-
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            now = datetime.now(timezone.utc).isoformat()
+            cursor.execute("SELECT patient_id FROM patients WHERE patient_id = ?", (patient_id,))
+            if not cursor.fetchone():
+                cursor.execute("""
+                INSERT OR IGNORE INTO patients (patient_id, name, relationship, created_at, updated_at)
+                VALUES (?, 'Patient', 'Self', ?, ?);
+                """, (patient_id, now, now))
+
             cursor.execute("""
             UPDATE documents SET patient_id = ? WHERE document_id = ?;
             """, (patient_id, document_id))
             cursor.execute("""
             UPDATE patients SET updated_at = ? WHERE patient_id = ?;
-            """, (datetime.now(timezone.utc).isoformat(), patient_id))
+            """, (now, patient_id))
             conn.commit()
 
         return self.get_document(document_id)
