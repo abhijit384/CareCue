@@ -307,19 +307,28 @@ class GeminiVerificationService:
                     "generationConfig": gen_config
                 }
 
-                import requests
-                res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=25)
-                if res.status_code == 200:
-                    resp_data = res.json()
-                    candidates = resp_data.get("candidates", [])
-                    if candidates and candidates[0].get("content", {}).get("parts"):
-                        text_out = candidates[0]["content"]["parts"][0].get("text", "")
-                        if text_out:
-                            logger.info(f"[Gemini REST] Successfully called model {m}")
-                            return text_out
-                else:
-                    logger.warning(f"[Gemini REST] Model {m} returned HTTP {res.status_code}: {res.text[:200]}")
-                    last_err = f"HTTP {res.status_code}: {res.text[:200]}"
+                import urllib.request
+                import urllib.error
+                req_data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=req_data,
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=25) as res:
+                        resp_data = json.loads(res.read().decode("utf-8"))
+                        candidates = resp_data.get("candidates", [])
+                        if candidates and candidates[0].get("content", {}).get("parts"):
+                            text_out = candidates[0]["content"]["parts"][0].get("text", "")
+                            if text_out:
+                                logger.info(f"[Gemini REST] Successfully called model {m}")
+                                return text_out
+                except urllib.error.HTTPError as h_err:
+                    err_msg = h_err.read().decode("utf-8", errors="replace")[:200]
+                    logger.warning(f"[Gemini REST] Model {m} returned HTTP {h_err.code}: {err_msg}")
+                    last_err = f"HTTP {h_err.code}: {err_msg}"
             except Exception as e:
                 logger.warning(f"[Gemini REST] Exception for model {m}: {e}")
                 last_err = str(e)
@@ -392,9 +401,21 @@ class GeminiVerificationService:
     # ─── 1. Document Vision OCR ───
 
     def extract_text_from_image(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
-        """Transcribes medical text from an image or scanned document page using Gemini Vision (SDK or REST)."""
+        """Transcribes medical text from an image or PDF document using Gemini Multimodal (SDK or REST)."""
+        if not image_bytes:
+            return ""
+
+        # Determine correct MIME type for Gemini Multimodal API (supports application/pdf, image/png, image/jpeg, image/webp)
+        is_pdf = image_bytes.startswith(b"%PDF") or mime_type == "application/pdf"
+        if is_pdf:
+            effective_mime = "application/pdf"
+        elif mime_type and mime_type.startswith("image/"):
+            effective_mime = mime_type
+        else:
+            effective_mime = "image/png"
+
         prompt = (
-            "Transcribe and extract ALL medical and clinical text from this document image accurately and verbatim. "
+            "Transcribe and extract ALL medical and clinical text from this document accurately and verbatim. "
             "Preserve headers, patient names, dates, medication names, dosages, frequencies, test names, observed values, "
             "reference ranges, and doctor notes exactly as written. Do not summarize, do not hallucinate, and do not provide diagnostic advice."
         )
@@ -406,16 +427,17 @@ class GeminiVerificationService:
                 response = self._generate_content_with_fallback(
                     client,
                     contents=[
-                        types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                        types.Part.from_bytes(data=image_bytes, mime_type=effective_mime),
                         prompt
                     ]
                 )
-                return response.text or ""
+                if response and response.text:
+                    return response.text.strip()
             except Exception as e:
                 logger.warning(f"GenAI SDK vision extraction failed ({e}). Trying direct REST API...")
 
-        # Direct REST API Vision OCR Fallback
-        import base64
+        # Direct REST API Multimodal OCR Fallback
+        import base64, urllib.request, urllib.error
         b64_str = base64.b64encode(image_bytes).decode("utf-8")
         api_key = self._get_api_key()
         if not api_key:
@@ -429,25 +451,34 @@ class GeminiVerificationService:
                     "contents": [{
                         "parts": [
                             {"text": prompt},
-                            {"inline_data": {"mime_type": mime_type, "data": b64_str}}
+                            {"inline_data": {"mime_type": effective_mime, "data": b64_str}}
                         ]
                     }],
                     "generationConfig": {"temperature": 0.0}
                 }
-                import requests
-                r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
-                if r.status_code == 200:
-                    resp_data = r.json()
-                    candidates = resp_data.get("candidates", [])
-                    if candidates and candidates[0].get("content", {}).get("parts"):
-                        out_text = candidates[0]["content"]["parts"][0].get("text", "")
-                        if out_text:
-                            return out_text
+                req_data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=req_data,
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as res:
+                        resp_data = json.loads(res.read().decode("utf-8"))
+                        candidates = resp_data.get("candidates", [])
+                        if candidates and candidates[0].get("content", {}).get("parts"):
+                            out_text = "".join([p.get("text", "") for p in candidates[0]["content"]["parts"] if "text" in p]).strip()
+                            if out_text:
+                                return out_text
+                except urllib.error.HTTPError as h_err:
+                    err_msg = h_err.read().decode("utf-8", errors="replace")[:100]
+                    logger.warning(f"[Gemini REST OCR] Model {m} HTTP {h_err.code}: {err_msg}")
             except Exception as ex:
                 logger.warning(f"[Gemini REST OCR] Model {m} failed: {ex}")
                 continue
 
-        raise RuntimeError("Failed to extract text from image via Gemini Vision SDK or REST API.")
+        return "[Document image could not be transcribed. No clinical text recognized.]"
 
     # ─── 2. Structured Clinical Document Comprehension ───
 
