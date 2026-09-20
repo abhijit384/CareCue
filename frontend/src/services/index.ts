@@ -138,7 +138,28 @@ export const patientService = {
   },
 
   async getDocuments(patientId: string): Promise<PatientDocument[]> {
-    return liveApi.patients.getDocuments(patientId);
+    const cacheKey = `carecue_docs_${patientId}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Background revalidation
+          liveApi.patients.getDocuments(patientId).then(fresh => {
+            if (fresh && Array.isArray(fresh) && fresh.length > 0) {
+              try { sessionStorage.setItem(cacheKey, JSON.stringify(fresh)); } catch {}
+            }
+          }).catch(() => {});
+          return parsed;
+        }
+      }
+    } catch {}
+
+    const docs = await liveApi.patients.getDocuments(patientId);
+    if (docs && Array.isArray(docs)) {
+      try { sessionStorage.setItem(cacheKey, JSON.stringify(docs)); } catch {}
+    }
+    return docs;
   },
 
   async delete(patientId: string): Promise<boolean> {

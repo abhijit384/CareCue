@@ -28,7 +28,10 @@ const LANG_MAP: Record<string, string> = {
 };
 
 function splitIntoSentences(text: string): string[] {
-  const clean = text.replace(/[*#_`]/g, '').trim();
+  let clean = text.replace(/[*#_`~]/g, '');
+  clean = clean.replace(/(\d+)\/(\d+)/g, '$1 $2');
+  clean = clean.replace(/[\/\\]+/g, ' ');
+  clean = clean.replace(/\s+/g, ' ').trim();
   if (!clean) return [];
   // Split on sentence boundaries including Hindi/Bengali purna viram (| or ।) and newlines
   const segments = clean.split(/(?<=[.!?;\n|।])\s+/);
@@ -153,6 +156,65 @@ export function useTTS(defaultLang: string = 'en') {
     playNext();
   }, []);
 
+  // Multi-tier fallback for TTS playback across all languages
+  const playChunkWithAudioFallback = useCallback((chunks: string[], langCode: string) => {
+    if (isCancelledRef.current || chunks.length === 0) {
+      setIsPlaying(false);
+      return;
+    }
+
+    const cleanLang = langCode.split('-')[0].split('_')[0].toLowerCase();
+    const rawApiBase = import.meta.env.VITE_API_URL || '/api';
+    const apiBase = rawApiBase.endsWith('/') ? rawApiBase.slice(0, -1) : rawApiBase;
+
+    let currentIndex = 0;
+
+    const playStep = (index: number, tryGoogleDirect = false) => {
+      if (isCancelledRef.current || index >= chunks.length) {
+        setIsPlaying(false);
+        return;
+      }
+
+      const chunkText = chunks[index];
+      const audioUrl = tryGoogleDirect
+        ? `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(cleanLang)}&q=${encodeURIComponent(chunkText)}`
+        : `${apiBase}/tts?lang=${encodeURIComponent(cleanLang)}&text=${encodeURIComponent(chunkText)}`;
+
+      const audio = new Audio(audioUrl);
+      currentAudioRef.current = audio;
+
+      audio.onended = () => {
+        if (!isCancelledRef.current) {
+          playStep(index + 1, false);
+        }
+      };
+
+      audio.onerror = (e) => {
+        console.warn(`[CareCue TTS] Audio stream warning on chunk ${index} (direct=${tryGoogleDirect}):`, e);
+        if (isCancelledRef.current) return;
+        if (!tryGoogleDirect) {
+          // Fallback to direct Google Translate TTS stream
+          playStep(index, true);
+        } else {
+          // Fallback to browser Web Speech API
+          playWebSpeechFallback(chunks.slice(index), cleanLang);
+        }
+      };
+
+      audio.play().catch(err => {
+        console.warn(`[CareCue TTS] Audio play error (direct=${tryGoogleDirect}):`, err);
+        if (isCancelledRef.current) return;
+        if (!tryGoogleDirect) {
+          playStep(index, true);
+        } else {
+          playWebSpeechFallback(chunks.slice(index), cleanLang);
+        }
+      });
+    };
+
+    playStep(0, false);
+  }, [playWebSpeechFallback]);
+
   const speak = useCallback((text: string, langCode?: string) => {
     if (!text || !text.trim()) return;
 
@@ -168,45 +230,8 @@ export function useTTS(defaultLang: string = 'en') {
     if (chunks.length === 0) return;
 
     setIsPlaying(true);
-
-    let currentIndex = 0;
-
-    const playChunkWithAudio = (index: number) => {
-      if (isCancelledRef.current || index >= chunks.length) {
-        setIsPlaying(false);
-        return;
-      }
-
-      const chunkText = chunks[index];
-      const ttsUrl = `/api/tts?lang=${encodeURIComponent(cleanLang)}&text=${encodeURIComponent(chunkText)}`;
-
-      const audio = new Audio(ttsUrl);
-      currentAudioRef.current = audio;
-
-      audio.onended = () => {
-        if (!isCancelledRef.current) {
-          playChunkWithAudio(index + 1);
-        }
-      };
-
-      audio.onerror = (e) => {
-        console.warn(`[CareCue TTS] Backend audio stream warning on chunk ${index}, attempting fallback:`, e);
-        if (!isCancelledRef.current) {
-          // If backend audio failed, switch remaining chunks to Web Speech API
-          playWebSpeechFallback(chunks.slice(index), cleanLang);
-        }
-      };
-
-      audio.play().catch(err => {
-        console.warn('[CareCue TTS] Audio play error:', err);
-        if (!isCancelledRef.current) {
-          playWebSpeechFallback(chunks.slice(index), cleanLang);
-        }
-      });
-    };
-
-    playChunkWithAudio(0);
-  }, [defaultLang, stop, playWebSpeechFallback]);
+    playChunkWithAudioFallback(chunks, cleanLang);
+  }, [defaultLang, stop, playChunkWithAudioFallback]);
 
   return {
     speak,

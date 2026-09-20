@@ -38,6 +38,7 @@ interface LanguageOption {
 interface ExplanationState {
   findingTitle?: string;
   explainedSimply?: string;
+  conditionSummary?: string;
   doctorSummary?: string;
   medicationsSummary?: string;
   labSummary?: string;
@@ -48,6 +49,7 @@ interface ExplanationState {
   questionsForDoctor?: string[];
   disclaimer?: string;
   translatedExplanation?: string;
+  translatedConditionSummary?: string;
   translatedDoctorSummary?: string;
   translatedMedicationsSummary?: string;
   translatedLabSummary?: string;
@@ -95,6 +97,34 @@ export function TranslateExplain() {
   const [explanationViewLang, setExplanationViewLang] = useState<'en' | 'target'>('target');
   const [currentlySpeaking, setCurrentlySpeaking] = useState<string | null>(null);
   const [explanationResult, setExplanationResult] = useState<ExplanationState | null>(null);
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+
+  const activeLangEntry = useMemo(() => {
+    return languages.find(l => l.code === targetLanguage) || {
+      code: targetLanguage,
+      name: targetLanguage.toUpperCase(),
+      native: targetLanguage.toUpperCase(),
+      region: 'Configured'
+    };
+  }, [languages, targetLanguage]);
+
+  const loadingMessages = useMemo(() => [
+    `⚡ Loading clinical report... please wait a moment.`,
+    `🤖 Synthesizing plain-language doctor brief & medical notes...`,
+    `🌐 Translating findings into ${activeLangEntry.name} (${activeLangEntry.native})... just a few seconds more...`,
+    `✨ Finalizing healthcare care plan & summary... almost ready!`,
+  ], [activeLangEntry]);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingMessageIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setLoadingMessageIndex(prev => (prev + 1) % loadingMessages.length);
+    }, 2600);
+    return () => clearInterval(interval);
+  }, [loading, loadingMessages.length]);
 
   // TTS Hook
   const { speak, stop, isPlaying, errorMessage: ttsError } = useTTS(targetLanguage);
@@ -220,6 +250,41 @@ export function TranslateExplain() {
     return lines.join('\n\n');
   };
 
+  const getDocText = (doc: any): string => {
+    if (!doc) return '';
+    if (doc.extractedText && doc.extractedText.trim()) return doc.extractedText;
+    if (doc.rawText && doc.rawText.trim()) return doc.rawText;
+    if (doc.pages && Array.isArray(doc.pages) && doc.pages.length > 0) {
+      const pageTxt = doc.pages.map((p: any) => p.text || '').filter(Boolean).join('\n\n');
+      if (pageTxt.trim()) return pageTxt;
+    }
+    if (doc.summary && doc.summary.trim()) return doc.summary;
+    if (doc.structuredData?.summary) return doc.structuredData.summary;
+    return '';
+  };
+
+  // Handle source change with full text retrieval
+  const handleDocChange = async (docId: string) => {
+    setSelectedDocId(docId);
+    const doc = patientDocs.find(d => d.documentId === docId);
+    if (doc) {
+      setSourceTitle(doc.displayName || doc.originalFileName || 'Clinical Document');
+      let text = getDocText(doc);
+      if (!text.trim()) {
+        try {
+          const fullDoc = await apiClient.get<any>(`/api/documents/${docId}/text`);
+          text = fullDoc?.extractedText || getDocText(fullDoc);
+        } catch {
+          try {
+            const detail = await apiClient.get<any>(`/api/documents/${docId}`);
+            text = getDocText(detail);
+          } catch {}
+        }
+      }
+      setSourceText(text || 'Document content retrieved.');
+    }
+  };
+
   // Update records when patient changes (Patient Isolation)
   useEffect(() => {
     if (!selectedPatientId) return;
@@ -248,22 +313,10 @@ export function TranslateExplain() {
         setSourceTitle('Doctor Visit Brief');
       } else if (sourceType === 'document' && docs.length > 0) {
         const targetDoc = urlDocId ? docs.find(d => d.documentId === urlDocId) || docs[0] : docs[0];
-        setSelectedDocId(targetDoc.documentId);
-        setSourceText(targetDoc.extractedText?.slice(0, 1200) || '');
-        setSourceTitle(targetDoc.displayName || targetDoc.originalFileName);
+        handleDocChange(targetDoc.documentId);
       }
     });
   }, [selectedPatientId, patients, urlDocId]);
-
-  // Handle source change
-  const handleDocChange = (docId: string) => {
-    setSelectedDocId(docId);
-    const doc = patientDocs.find(d => d.documentId === docId);
-    if (doc) {
-      setSourceText(doc.extractedText?.slice(0, 1200) || '');
-      setSourceTitle(doc.displayName || doc.originalFileName);
-    }
-  };
 
   const handleFindingChange = (findingId: string) => {
     setSelectedFindingId(findingId);
@@ -282,13 +335,6 @@ export function TranslateExplain() {
       l => l.name.toLowerCase().includes(q) || l.native.toLowerCase().includes(q) || l.code.toLowerCase().includes(q)
     );
   }, [languages, searchLang]);
-
-  const activeLangEntry = languages.find(l => l.code === targetLanguage) || {
-    code: targetLanguage,
-    name: targetLanguage.toUpperCase(),
-    native: targetLanguage.toUpperCase(),
-    region: 'Configured'
-  };
 
   // ─── 1. Run Unified Translation & Explanation ───
   const runTranslateAndExplain = async (callerAction: 'translate' | 'explain' | 'combo', preferredView: 'en' | 'target') => {
@@ -321,6 +367,7 @@ export function TranslateExplain() {
         });
 
         let trExplained = '';
+        let trCondSummary = '';
         let trDocSummary = '';
         let trMedsSummary = '';
         let trLabSummary = '';
@@ -333,6 +380,7 @@ export function TranslateExplain() {
           try {
             const batchPayload: Record<string, any> = {
               explainedSimply: exp.explainedSimply || '',
+              conditionSummary: exp.conditionSummary || '',
               doctorSummary: exp.doctorSummary || exp.explainedSimply || '',
               medicationsSummary: exp.medicationsSummary || '',
               labSummary: exp.labSummary || '',
@@ -342,11 +390,23 @@ export function TranslateExplain() {
 
             const trBatch = await translationService.translateBatch(batchPayload, targetLanguage as any);
             trExplained = trBatch.explainedSimply || exp.explainedSimply || '';
+            trCondSummary = trBatch.conditionSummary || trBatch.condition || '';
             trDocSummary = trBatch.doctorSummary || exp.doctorSummary || '';
             trMedsSummary = trBatch.medicationsSummary || exp.medicationsSummary || '';
             trLabSummary = trBatch.labSummary || exp.labSummary || '';
             trNextVisit = trBatch.nextVisitSummary || exp.nextVisitSummary || '';
             trWhy = trBatch.whyItAppears || exp.whyItAppears || '';
+
+            if (!trCondSummary && (exp.conditionSummary || exp.explainedSimply)) {
+              try {
+                trCondSummary = await translationService.translateText(
+                  exp.conditionSummary || exp.explainedSimply.slice(0, 180),
+                  targetLanguage as any
+                );
+              } catch {
+                trCondSummary = trExplained;
+              }
+            }
 
             if (exp.whatToDiscuss && exp.whatToDiscuss.length > 0) {
               trQuestions = await Promise.all(
@@ -370,6 +430,7 @@ export function TranslateExplain() {
         const formattedResult: ExplanationState = {
           findingTitle: exp.findingTitle || sourceTitle || 'Doctor Visit Brief',
           explainedSimply: exp.explainedSimply,
+          conditionSummary: exp.conditionSummary,
           doctorSummary: exp.doctorSummary || exp.explainedSimply,
           medicationsSummary: exp.medicationsSummary,
           labSummary: exp.labSummary,
@@ -381,6 +442,7 @@ export function TranslateExplain() {
           disclaimer: exp.disclaimer,
 
           translatedExplanation: trExplained || exp.explainedSimply,
+          translatedConditionSummary: trCondSummary || exp.conditionSummary,
           translatedDoctorSummary: trDocSummary || exp.doctorSummary || exp.explainedSimply,
           translatedMedicationsSummary: trMedsSummary || exp.medicationsSummary,
           translatedLabSummary: trLabSummary || exp.labSummary,
@@ -527,10 +589,8 @@ export function TranslateExplain() {
                 onClick={() => {
                   setSourceType('document');
                   if (patientDocs.length > 0) {
-                    const d = patientDocs[0];
-                    setSelectedDocId(d.documentId);
-                    setSourceText(d.extractedText?.slice(0, 1200) || '');
-                    setSourceTitle(d.displayName || d.originalFileName);
+                    const targetId = selectedDocId || patientDocs[0].documentId;
+                    handleDocChange(targetId);
                   }
                 }}
                 className={`py-1.5 rounded-lg transition-all cursor-pointer ${sourceType === 'document' ? 'bg-bg-surface text-accent-teal-dark shadow-xs font-extrabold' : 'hover:text-text-primary'}`}
@@ -727,7 +787,7 @@ export function TranslateExplain() {
               type="button"
               disabled={loading || !sourceText.trim()}
               onClick={handleCombo}
-              className="py-2.5 px-2 rounded-xl bg-accent-teal hover:bg-accent-teal-dark text-text-inverse text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+              className="py-2.5 px-2 rounded-xl bg-accent-teal hover:bg-accent-teal-dark text-text-inverse text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
             >
               {loading && actionType === 'combo' ? (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -756,16 +816,24 @@ export function TranslateExplain() {
             </div>
           )}
 
-          {/* Loading Indicator */}
+          {/* Dynamic Loading Indicator */}
           {loading && (
-            <div className="p-10 rounded-2xl bg-bg-surface border border-border-default text-center space-y-3">
-              <RefreshCw className="w-8 h-8 text-accent-teal animate-spin mx-auto" />
-              <p className="text-xs font-bold text-text-primary uppercase tracking-wider">
-                Synthesizing Plain-Language Brief & Explanations...
-              </p>
-              <p className="text-xs text-text-secondary">
-                Structuring doctor notes, medicines, lab reports, and next visit instructions in Simplified English & {activeLangEntry.name}.
-              </p>
+            <div className="p-10 rounded-2xl bg-bg-surface border border-accent-teal/30 shadow-md text-center space-y-4 animate-in fade-in">
+              <div className="relative w-12 h-12 mx-auto">
+                <RefreshCw className="w-12 h-12 text-accent-teal animate-spin" />
+                <Sparkles className="w-5 h-5 text-amber-500 absolute top-3 left.5 animate-pulse" />
+              </div>
+              <div className="space-y-1.5 max-w-md mx-auto">
+                <h3 className="text-xs sm:text-sm font-extrabold text-text-primary tracking-wide transition-all duration-300">
+                  {loadingMessages[loadingMessageIndex]}
+                </h3>
+                <p className="text-[11px] text-text-secondary">
+                  Grounded in real medical text. Structuring doctor notes, medicines, and lab reports in English & {activeLangEntry.name}.
+                </p>
+              </div>
+              <div className="w-56 h-2 bg-bg-primary rounded-full overflow-hidden mx-auto shadow-inner">
+                <div className="h-full bg-gradient-to-r from-accent-teal via-emerald-500 to-amber-500 animate-pulse w-full rounded-full" />
+              </div>
             </div>
           )}
 
@@ -794,30 +862,90 @@ export function TranslateExplain() {
 
                 {/* Switcher: English vs Target Language */}
                 <div className="flex items-center gap-1.5 p-1 rounded-xl bg-bg-primary border border-border-subtle text-xs font-bold">
-                  <button
-                    type="button"
-                    onClick={() => setExplanationViewLang('en')}
-                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                      explanationViewLang === 'en'
-                        ? 'bg-bg-surface text-accent-teal-dark shadow-2xs font-extrabold border border-accent-teal/20'
-                        : 'text-text-muted hover:text-text-primary'
-                    }`}
-                  >
-                    English (Simplified)
-                  </button>
-                  {targetLanguage !== 'en' && (
                     <button
                       type="button"
-                      onClick={() => setExplanationViewLang('target')}
-                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-                        explanationViewLang === 'target'
+                      onClick={() => setExplanationViewLang('en')}
+                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        explanationViewLang === 'en'
                           ? 'bg-bg-surface text-accent-teal-dark shadow-2xs font-extrabold border border-accent-teal/20'
                           : 'text-text-muted hover:text-text-primary'
                       }`}
                     >
-                      <span>{activeLangEntry.native} ({activeLangEntry.name})</span>
+                      English
                     </button>
-                  )}
+                    {targetLanguage !== 'en' && (
+                      <button
+                        type="button"
+                        onClick={() => setExplanationViewLang('target')}
+                        className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                          explanationViewLang === 'target'
+                            ? 'bg-bg-surface text-accent-teal-dark shadow-2xs font-extrabold border border-accent-teal/20'
+                            : 'text-text-muted hover:text-text-primary'
+                        }`}
+                      >
+                        <span>{activeLangEntry.native} ({activeLangEntry.name})</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+              {/* ⚡ Key Clinical Snapshot Summary Card */}
+              <div className="p-4 rounded-xl bg-gradient-to-r from-accent-teal/10 via-bg-primary to-emerald-500/10 border border-accent-teal/30 space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-accent-teal-dark">
+                    <ClipboardList className="w-4 h-4 text-accent-teal" />
+                    <span>⚡ Key Snapshot Summary (Disease, Doctor Notes, Medicines & Labs)</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                  {/* 🩺 Disease / Condition / Symptoms */}
+                  <div className="p-2.5 rounded-lg bg-bg-surface border border-border-subtle">
+                    <span className="text-[10px] font-extrabold uppercase text-amber-600 dark:text-amber-400 block mb-0.5">
+                      {explanationViewLang === 'target' ? `🩺 🔍 ${activeLangEntry.name} - Disease & Symptoms (${activeLangEntry.native})` : '🩺 Disease / Symptoms / Conditions'}
+                    </span>
+                    <p className="font-semibold text-text-primary leading-tight">
+                      {explanationViewLang === 'target'
+                        ? (explanationResult.translatedConditionSummary || explanationResult.translatedExplanation || explanationResult.conditionSummary || 'Documented symptoms, vitals & observations.')
+                        : (explanationResult.conditionSummary || 'Documented symptoms, vitals & observations.')}
+                    </p>
+                  </div>
+
+                  {/* 📋 What Doctor Wrote Mainly */}
+                  <div className="p-2.5 rounded-lg bg-bg-surface border border-border-subtle">
+                    <span className="text-[10px] font-extrabold uppercase text-accent-teal-dark block mb-0.5">
+                      {explanationViewLang === 'target' ? `📋 ${activeLangEntry.name} - Doctor Brief (${activeLangEntry.native})` : '📋 What Doctor Wrote Mainly'}
+                    </span>
+                    <p className="font-semibold text-text-primary leading-tight">
+                      {explanationViewLang === 'target'
+                        ? (explanationResult.translatedDoctorSummary || explanationResult.translatedExplanation || explanationResult.doctorSummary || 'Physician consultation advice and recommendations.')
+                        : (explanationResult.doctorSummary || 'Physician consultation advice and recommendations.')}
+                    </p>
+                  </div>
+
+                  {/* 💊 Main Medicines */}
+                  <div className="p-2.5 rounded-lg bg-bg-surface border border-border-subtle">
+                    <span className="text-[10px] font-extrabold uppercase text-emerald-600 dark:text-emerald-400 block mb-0.5">
+                      {explanationViewLang === 'target' ? `💊 ${activeLangEntry.name} - Medicines (${activeLangEntry.native})` : '💊 Main Medicine Names'}
+                    </span>
+                    <p className="font-semibold text-text-primary leading-tight">
+                      {explanationViewLang === 'target'
+                        ? (explanationResult.translatedMedicationsSummary || explanationResult.medicationsSummary || 'No medicines specified.')
+                        : (explanationResult.medicationsSummary || 'No medicines specified.')}
+                    </p>
+                  </div>
+
+                  {/* 🧪 Lab Reports */}
+                  <div className="p-2.5 rounded-lg bg-bg-surface border border-border-subtle">
+                    <span className="text-[10px] font-extrabold uppercase text-blue-600 dark:text-blue-400 block mb-0.5">
+                      {explanationViewLang === 'target' ? `🧪 ${activeLangEntry.name} - Lab Reports (${activeLangEntry.native})` : '🧪 Lab Reports & Investigations'}
+                    </span>
+                    <p className="font-semibold text-text-primary leading-tight">
+                      {explanationViewLang === 'target'
+                        ? (explanationResult.translatedLabSummary || explanationResult.labSummary || 'No lab tests specified.')
+                        : (explanationResult.labSummary || 'No lab tests specified.')}
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -826,8 +954,8 @@ export function TranslateExplain() {
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[11px] font-extrabold uppercase tracking-widest text-accent-teal-dark">
                     {explanationViewLang === 'en'
-                      ? '🌟 Overall Simplified Healthcare Summary'
-                      : `🌟 ${activeLangEntry.name} Simplified Summary (${activeLangEntry.native})`}
+                      ? '🌟 Detailed Healthcare Explanation'
+                      : `🌟 ${activeLangEntry.name} Detailed Explanation (${activeLangEntry.native})`}
                   </span>
                   <span className="text-[10px] font-bold text-text-muted uppercase">
                     {explanationViewLang === 'en' ? 'Plain Language' : activeLangEntry.name}

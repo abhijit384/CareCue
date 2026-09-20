@@ -67,8 +67,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL_ID", "gemini-3.5-flash-lite")
 FALLBACK_GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash"]
 MAX_REQUESTS_PER_SESSION = 15
-MAX_INPUT_CHAR_SIZE = 12000
-MAX_OUTPUT_TOKENS = 2500
+MAX_INPUT_CHAR_SIZE = 20000
+MAX_OUTPUT_TOKENS = 4096
 
 _CACHED_API_KEY: Optional[str] = None
 _AUDIT_LOG: List[Dict[str, Any]] = []
@@ -491,34 +491,87 @@ class GeminiVerificationService:
             logger.warning("[GeminiService] API key not available, using clinical parser fallback.")
             return parse_clinical_text(document_text)
 
-        type_hint = f"Expected Document Type: {document_type}" if document_type else ""
+        type_hint = f"This document appears to be a {document_type}." if document_type else ""
 
         system_instruction = (
-            "You are a clinical document entity comprehension agent in CareCue. "
-            "Analyze the provided medical document text and extract structured information strictly grounded in the document. "
-            "STRICT RULES:\n"
-            "1. Only extract information explicitly mentioned in the text. DO NOT invent or hallucinate data.\n"
-            "2. Extract the patient's name accurately from headers, prescription metadata, 'Patient Name', 'Pt Name', 'Name', 'Prescribed to', 'S/O', 'D/O', 'W/O', or top lines. DO NOT confuse the Doctor's name (e.g. Dr. ..., MD, MBBS) or Clinic/Hospital/Lab name with the Patient's name. If no patient name appears, set patient.name to null.\n"
-            "3. If medications are listed, extract dosage, strength, frequency, route, and duration verbatim.\n"
-            "4. If laboratory tests are listed, extract the test name, value, unit, and reference interval verbatim.\n"
-            "5. Cite the exact page number and verbatim excerpt for every item in sourceEvidence.\n"
-            "6. Classify documentType as LAB_REPORT, PRESCRIPTION, MEDICAL_REPORT, DISCHARGE_SUMMARY, or OTHER.\n"
-            "7. Output ONLY a valid JSON object matching the requested schema."
+            "You are a meticulous clinical document extraction specialist. "
+            "Your job is to read the EXACT text of a medical document and extract every piece of clinical information with perfect accuracy. "
+            "CRITICAL RULES:\n"
+            "1. Extract ONLY information that is EXPLICITLY written in the document text. NEVER invent, guess, or hallucinate any data.\n"
+            "2. For MEDICATIONS: Extract the EXACT medicine name as written (e.g. 'Glycomet GP 2', 'Telma 40', 'Ecosprin 75', 'Atorvastatin 10mg'). "
+            "Include the brand name OR generic name exactly as it appears. Extract strength, dosage frequency (like '1-0-1', 'OD', 'BD', 'HS'), "
+            "route, duration, and any special instructions (like 'after meals', 'at bedtime').\n"
+            "3. For LAB RESULTS: Extract the EXACT test name (e.g. 'HbA1c', 'Fasting Blood Sugar', 'Serum Creatinine', 'Total Cholesterol'), "
+            "the EXACT observed value with units, reference range if provided, and flag as HIGH/LOW/NORMAL/ABNORMAL.\n"
+            "4. For FINDINGS: Extract clinical observations, diagnoses, and biomarker interpretations. "
+            "For each finding, provide a plain-language explanation of what it means for the patient.\n"
+            "5. For PATIENT NAME: Look for 'Patient Name', 'Pt Name', 'Name:', NOT doctor names (Dr., MD, MBBS). "
+            "If no patient name is found, set name to null.\n"
+            "6. For DOCTOR NAME: Identify the prescribing/referring doctor from 'Dr.', credentials like MBBS/MD/DM.\n"
+            "7. Output ONLY valid JSON. No markdown, no explanations outside the JSON."
         )
 
-        schema_json = json.dumps(StructuredDocumentAnalysis.model_json_schema())
+        user_prompt = f"""{type_hint}
 
-        user_prompt = f"""
-{type_hint}
-
-DOCUMENT CONTENT:
+DOCUMENT TEXT:
 ---
 {document_text[:MAX_INPUT_CHAR_SIZE]}
 ---
 
-Extract the structured medical information and return ONLY valid JSON matching this schema:
-{schema_json}
-"""
+Read the above document text carefully word by word. Extract ALL clinical information and return a JSON object with EXACTLY these fields:
+
+{{
+  "patient": {{
+    "name": "Patient's full name or null if not found",
+    "age": "Patient age or null",
+    "sex": "Male/Female/Other or null",
+    "patientId": "MRN or hospital ID or null"
+  }},
+  "documentType": "LAB_REPORT or PRESCRIPTION or MEDICAL_REPORT or DISCHARGE_SUMMARY or OTHER",
+  "documentDate": "Date from the document or null",
+  "medications": [
+    {{
+      "name": "EXACT medicine name as written in document",
+      "strength": "e.g. 500mg, 10mg or null",
+      "dosage": "e.g. 1 tablet, 5ml or null",
+      "frequency": "e.g. 1-0-1, OD, BD, Twice daily or null",
+      "duration": "e.g. 30 days, 2 weeks or null",
+      "route": "Oral, Topical, etc. or null",
+      "instructions": "e.g. After meals, At bedtime or null",
+      "sourcePage": 1
+    }}
+  ],
+  "labResults": [
+    {{
+      "testName": "EXACT test name as written",
+      "value": "EXACT observed value as written",
+      "unit": "mg/dL, g/dL, % etc or null",
+      "referenceRange": "Reference interval or null",
+      "flag": "NORMAL or HIGH or LOW or ABNORMAL or ADVISED",
+      "sourcePage": 1
+    }}
+  ],
+  "findings": [
+    {{
+      "text": "Verbatim clinical observation from the document",
+      "category": "Metabolic/Lipid/Hematology/Cardiac/Diagnosis/General",
+      "clinicalSignificance": "What this finding means in simple everyday language for a non-medical person",
+      "sourcePage": 1,
+      "verificationStatus": "consistent"
+    }}
+  ],
+  "conditions": ["List of diagnosed conditions/diseases mentioned"],
+  "symptoms": ["List of symptoms or complaints mentioned"],
+  "sourceEvidence": [
+    {{
+      "page": 1,
+      "text": "Exact verbatim quote from document supporting the extraction"
+    }}
+  ],
+  "summary": "2-3 sentence plain-language overview of what this document contains, what the doctor advised, and key health observations"
+}}
+
+IMPORTANT: Extract EVERY medication, EVERY lab test, and EVERY clinical finding mentioned in the document. Do not skip any. If tests are advised/ordered but results not available, include them with value "Advised" and flag "ADVISED"."""
 
         raw_text = self._call_interactions_api(
             prompt=user_prompt,
@@ -530,22 +583,36 @@ Extract the structured medical information and return ONLY valid JSON matching t
         cleaned = re.sub(r"^```\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned).strip()
 
+        # Sanitize unescaped backslashes and invalid unicode escapes (e.g. \uparrow, \unit, \u)
+        cleaned = re.sub(r'\\u(?![0-9a-fA-F]{4})', r'\\\\u', cleaned)
+        cleaned = re.sub(r'\\(?![/"bfnrtu\\])', r'\\\\', cleaned)
+
         try:
             parsed = json.loads(cleaned)
-            # Validate with Pydantic
-            validated = StructuredDocumentAnalysis.model_validate(parsed)
-            return validated.model_dump()
+            # Normalize field names for compatibility
+            if isinstance(parsed, dict):
+                # Ensure medications have 'name' field
+                for med in parsed.get("medications", []):
+                    if isinstance(med, dict) and not med.get("name") and med.get("medication"):
+                        med["name"] = med.pop("medication")
+                # Ensure labResults have 'testName' field
+                for lr in parsed.get("labResults", []):
+                    if isinstance(lr, dict) and not lr.get("testName") and lr.get("test"):
+                        lr["testName"] = lr.pop("test")
+            return parsed
         except Exception as err:
             logger.warning(f"Gemini structured output parsing failed ({err}). Attempting regex repair...")
             match = re.search(r"\{.*\}", cleaned, re.DOTALL)
             if match:
                 try:
-                    parsed = json.loads(match.group(0))
-                    validated = StructuredDocumentAnalysis.model_validate(parsed)
-                    return validated.model_dump()
+                    repaired = re.sub(r'\\u(?![0-9a-fA-F]{4})', r'\\\\u', match.group(0))
+                    repaired = re.sub(r'\\(?![/"bfnrtu\\])', r'\\\\', repaired)
+                    parsed = json.loads(repaired)
+                    return parsed
                 except Exception:
                     pass
             raise ValueError(f"Could not parse valid structured clinical JSON from Gemini response: {err}")
+
 
     # ─── 2.5. Patient Identity Verification via Gemini ───
 
@@ -816,51 +883,53 @@ Generate a JSON object conforming to:
         if not self.is_available():
             raise RuntimeError("Gemini API key unavailable. Check GEMINI_API_KEY configuration.")
 
-        prompt = f"""
-You are an empathetic, clear medical educator in CareCue.
-Explain this clinical information, doctor brief, or lab record for a patient in plain, reassuring language that anyone can easily understand.
-Level of explanation: {level} (standard: clear adult explanation; beginner: very simple non-technical explanation).
+        prompt = f"""You are a medical document interpreter for CareCue. Your task is to read the ACTUAL clinical text provided below and explain it in plain, reassuring language that any patient can understand.
 
-FINDING / TITLE: {finding_title}
-VERBATIM VALUE: {value or 'Documented in report'}
-REFERENCE RANGE: {reference_range or 'Laboratory standard'}
-SOURCE EXCERPT / BRIEF:
-{source_quote or 'N/A'}
+Level: {level} (standard = clear adult explanation; beginner = very simple).
 
-Rules:
-- Strictly NON-DIAGNOSTIC (do NOT diagnose disease, do NOT prescribe new treatments).
-- Keep exact values ({value}) and clinical units intact.
-- Provide a comprehensive, simplified explanation addressing:
-  1. Doctor & Consultation: Who examined/advised, clinic context, and the primary healthcare focus.
-  2. Prescribed Medications: Names, dosages, timings, and what each medicine does in plain words.
-  3. Lab Reports & Tests: What tests/biomarkers were checked, what the values mean, and if they are normal or need attention.
-  4. Hard Medical Terms Explained: Identify any complex doctor jargon or medical abbreviations in the text and explain them in simple non-technical words.
-  5. Next Visit & Action Plan: When to see the doctor next, tests to repeat, lifestyle tips, and warning signs.
-  6. Questions for Doctor: 2-3 specific questions for the next visit.
+CLINICAL FINDING TITLE: {finding_title}
+OBSERVED VALUE: {value or 'See document text below'}
+REFERENCE RANGE: {reference_range or 'Standard clinical range'}
 
-Return a JSON object conforming to:
-{
+ACTUAL DOCUMENT TEXT (this is the real source - base ALL your explanations on this text):
+---
+{source_quote or 'No source text provided'}
+---
+
+INSTRUCTIONS:
+- Read the document text above CAREFULLY. Every detail in your explanation must come from this text.
+- Do NOT invent medications, test results, doctor names, or values that are not in the text above.
+- If the text mentions specific medicine names (e.g. Glycomet, Telma, Ecosprin, Metformin), list EACH one by name with its dose and timing.
+- If the text mentions specific lab tests (e.g. HbA1c, Blood Sugar, Creatinine, Cholesterol), explain EACH one with its actual value.
+- If no medications appear in the text, say "No medications are mentioned in this document section."
+- If no lab tests appear, say "No lab test results are mentioned in this document section."
+- Keep all numbers, doses, and units exactly as written. Do NOT change values.
+- Be strictly NON-DIAGNOSTIC: do not diagnose diseases or prescribe treatments.
+
+Return a JSON object with these fields:
+{{
   "findingTitle": "{finding_title}",
   "verbatimValue": "{value}",
   "verbatimRange": "{reference_range}",
-  "sourceQuote": "{source_quote}",
-  "explainedSimply": "2-3 clear sentences summarizing the entire clinical situation in simple everyday language.",
-  "doctorSummary": "1-2 sentences explaining the doctor's consultation, clinic, and main health advice.",
-  "medicationsSummary": "2-3 sentences explaining the prescribed medicines, doses, and why they were given in simple words.",
-  "labSummary": "2-3 sentences explaining the laboratory tests, observed values, and what they mean in plain language.",
+  "sourceQuote": "Brief relevant quote from the source text",
+  "explainedSimply": "2-3 clear sentences summarizing what this document says in everyday language. Mention specific medicine names and test results from the text.",
+  "conditionSummary": "1 concise sentence stating symptoms, observations, or health conditions documented (e.g. excessive sweating, elevated pulse rate).",
+  "doctorSummary": "1-2 sentences about which doctor was consulted (use actual name from text if available), what department or specialty, and what they advised.",
+  "medicationsSummary": "List each medication mentioned in the text by its EXACT name, dose, and timing. Explain in simple words what each medicine typically does. If no medications, say so.",
+  "labSummary": "List each lab test mentioned with its EXACT value and what it means. If no lab tests, say so.",
   "hardTermsExplained": [
-    {"term": "Medical term or abbreviation", "simpleExplanation": "Plain everyday language explanation of what this term means"}
+    {{"term": "A medical term from the text", "simpleExplanation": "What it means in everyday words"}}
   ],
-  "nextVisitSummary": "1-2 sentences on when to visit the doctor next, repeat tests needed, and key precautions.",
-  "whyItAppears": "1-2 sentences on why these observations and tests are documented.",
-  "whatThisMeans": "1-2 sentences on clinical benchmarks and overall care goals.",
-  "whatToDiscuss": ["2-3 specific questions the patient can ask their doctor"],
-  "questionsForDoctor": ["2-3 specific questions the patient can ask their doctor"],
+  "nextVisitSummary": "When to see the doctor next and what tests to bring, based on what the text says.",
+  "whyItAppears": "Why these observations are documented.",
+  "whatThisMeans": "What the overall health picture looks like based on the text.",
+  "whatToDiscuss": ["2-3 specific questions based on the ACTUAL findings in this text"],
+  "questionsForDoctor": ["Same 2-3 questions"],
   "level": "{level}",
   "safetyAudited": true,
   "disclaimer": "This explanation is educational and not medical advice. Consult your physician for clinical diagnosis and care."
-}
-"""
+}}"""
+
         raw_text = self._call_interactions_api(prompt=prompt)
         cleaned = re.sub(r"^```json\s*", "", raw_text.strip())
         cleaned = re.sub(r"^```\s*", "", cleaned)

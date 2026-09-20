@@ -38,7 +38,7 @@ if _local_env_file.exists():
 import re
 import urllib.request
 import urllib.parse
-from fastapi import FastAPI, Response, UploadFile, File, Form, HTTPException, status, Header, Depends
+from fastapi import FastAPI, Response, UploadFile, File, Form, HTTPException, status, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -368,6 +368,7 @@ def translate_and_explain(req: TranslateAndExplainRequest):
 
             exp_text = explained.get("explainedSimply", "")
             doc_text = explained.get("doctorSummary", "")
+            cond_text = explained.get("conditionSummary", "")
             meds_text = explained.get("medicationsSummary", "")
             labs_text = explained.get("labSummary", "")
             visit_text = explained.get("nextVisitSummary", "")
@@ -377,6 +378,7 @@ def translate_and_explain(req: TranslateAndExplainRequest):
             batch_payload = {
                 "explanation": exp_text,
                 "doctor": doc_text,
+                "condition": cond_text,
                 "medications": meds_text,
                 "labs": labs_text,
                 "nextVisit": visit_text,
@@ -386,6 +388,7 @@ def translate_and_explain(req: TranslateAndExplainRequest):
             translated_batch = translation_service.translate_batch(batch_payload, req.targetLanguage)
             explained["translatedExplanation"] = translated_batch.get("explanation", exp_text)
             explained["translatedDoctorSummary"] = translated_batch.get("doctor", doc_text)
+            explained["translatedConditionSummary"] = translated_batch.get("condition", cond_text)
             explained["translatedMedicationsSummary"] = translated_batch.get("medications", meds_text)
             explained["translatedLabSummary"] = translated_batch.get("labs", labs_text)
             explained["translatedNextVisitSummary"] = translated_batch.get("nextVisit", visit_text)
@@ -396,6 +399,7 @@ def translate_and_explain(req: TranslateAndExplainRequest):
             explained["translatedSourceText"] = req.text
             explained["translatedExplanation"] = explained.get("explainedSimply", "")
             explained["translatedDoctorSummary"] = explained.get("doctorSummary", "")
+            explained["translatedConditionSummary"] = explained.get("conditionSummary", "")
             explained["translatedMedicationsSummary"] = explained.get("medicationsSummary", "")
             explained["translatedLabSummary"] = explained.get("labSummary", "")
             explained["translatedNextVisitSummary"] = explained.get("nextVisitSummary", "")
@@ -436,7 +440,8 @@ def translate_and_explain(req: TranslateAndExplainRequest):
 
 @app.post("/api/documents/upload")
 async def upload_document(
-    file: UploadFile = File(...),
+    request: Request,
+    file: Optional[UploadFile] = File(None),
     patientId: Optional[str] = Form(None),
     documentType: Optional[str] = Form(None),
     user_id: Optional[str] = Depends(get_current_user_id),
@@ -447,11 +452,26 @@ async def upload_document(
     2. PyMuPDF text & page extraction (with image render fallback for scanned PDFs).
     3. Gemini clinical structured comprehension (medications, labs, findings, patient identity).
     4. Persists record in SQLite database.
+    Supports both multipart/form-data and JSON payloads with a base64‑encoded file.
     """
-    file_bytes = await file.read()
+    # Determine request type and extract file bytes / metadata
+    if request.headers.get("content-type", "").startswith("application/json"):
+        payload = await request.json()
+        import base64
+        file_bytes = base64.b64decode(payload["file"])
+        file_name = payload.get("fileName", "uploaded_file")
+        content_type = payload.get("contentType", "application/pdf")
+        # Override form fields if provided in JSON
+        patientId = payload.get("patientId", patientId)
+        documentType = payload.get("documentType", documentType)
+    else:
+        if not file:
+            raise HTTPException(status_code=400, detail="File is required for multipart upload")
+        file_bytes = await file.read()
+        file_name = file.filename or "uploaded_report.pdf"
+        content_type = file.content_type or "application/pdf"
+
     file_size = len(file_bytes)
-    file_name = file.filename or "uploaded_report.pdf"
-    content_type = file.content_type or "application/pdf"
 
     val_err = document_service.validate_upload_request(file_name, content_type, file_size)
     if val_err:

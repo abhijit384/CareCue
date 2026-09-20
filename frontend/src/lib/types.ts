@@ -128,6 +128,7 @@ export interface ExplanationResult {
   disclaimer?: string;
   safetyAudited?: boolean;
   doctorSummary?: string;
+  conditionSummary?: string;
   medicationsSummary?: string;
   labSummary?: string;
   hardTermsExplained?: Array<{ term: string; simpleExplanation: string }>;

@@ -674,6 +674,40 @@ Resources:
             Path: /explain
             Method: POST
 
+  # Text to Speech Audio Stream
+  TTSFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/
+      Handler: handlers.tts_handler.lambda_handler
+      MemorySize: 256
+      Timeout: 15
+      Events:
+        StreamTTSGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /tts
+            Method: GET
+        StreamTTSPost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /tts
+            Method: POST
+        StreamApiTTSGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /api/tts
+            Method: GET
+        StreamApiTTSPost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CareCueHttpApi
+            Path: /api/tts
+            Method: POST
+
   # Emergency Triage Evaluation
   EmergencyFunction:
     Type: AWS::Serverless::Function

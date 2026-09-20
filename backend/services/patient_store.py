@@ -625,25 +625,28 @@ class PatientStore:
         return None
 
     def get_documents_by_patient(self, patient_id: str) -> List[Dict[str, Any]]:
-        """Strictly fetches documents attached to a specific patientId with DynamoDB sync."""
+        """Fast instant document retrieval from local database with fallback sync."""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT * FROM documents
+            WHERE patient_id = ?
+            ORDER BY uploaded_at DESC;
+            """, (patient_id,))
+            rows = cursor.fetchall()
+            if rows:
+                return [self._row_to_document_dict(r) for r in rows]
+
+        # Fallback to DynamoDB scan only if local SQLite DB returns no documents
         table = get_dynamo_table()
         if table:
             try:
-                scan_kwargs = {
-                    "FilterExpression": "patientId = :pid AND entityType = :etype",
-                    "ExpressionAttributeValues": {":pid": patient_id, ":etype": "document"},
-                }
-                done = False
-                start_key = None
-                while not done:
-                    if start_key:
-                        scan_kwargs["ExclusiveStartKey"] = start_key
-                    res = table.scan(**scan_kwargs)
-                    for item in res.get("Items", []):
-                        self._restore_document_from_dynamo(item)
-                    start_key = res.get("LastEvaluatedKey")
-                    if not start_key:
-                        done = True
+                res = table.scan(
+                    FilterExpression="patientId = :pid AND entityType = :etype",
+                    ExpressionAttributeValues={":pid": patient_id, ":etype": "document"}
+                )
+                for item in res.get("Items", []):
+                    self._restore_document_from_dynamo(item)
             except Exception as e:
                 logger.debug(f"DynamoDB scan patient docs notice: {e}")
 

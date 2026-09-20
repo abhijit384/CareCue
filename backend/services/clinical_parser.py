@@ -8,7 +8,7 @@ import re
 from typing import Dict, Any, List, Optional
 
 COMMON_MED_PREFIXES = r'(?:Tab\.?|Tablet|Cap\.?|Capsule|Syr\.?|Syrup|Inj\.?|Injection|Oint\.?|Ointment|T\.?|C\.?|S\.?)\s+'
-FREQUENCY_PATTERNS = r'(?:1-0-1|1-0-0|0-0-1|0-1-0|1-1-1|OD|BD|BID|TID|QID|HS|STAT|SOS|PC|AC|Once\s+daily|Twice\s+daily|Thrice\s+daily|Daily|At\s+bedtime|After\s+meals|Before\s+meals)'
+FREQUENCY_PATTERNS = r'(?:1-0-1|1-0-0|0-0-1|0-1-0|1-1-1|OD|BD|BID|TID|QID|HS|STAT|SOS|PC|AC|ODPC|BDPC|ODC|BDC|ODHS|BDHS|Once\s+daily|Twice\s+daily|Thrice\s+daily|Daily|At\s+bedtime|After\s+meals|Before\s+meals|3\s+daily|2\s+daily|1\s+daily|OS/OD)'
 
 def parse_clinical_text(text: str) -> Dict[str, Any]:
     """
@@ -37,17 +37,17 @@ def parse_clinical_text(text: str) -> Dict[str, Any]:
     age = None
     gender = None
 
-    for m in re.finditer(r'(?:^\s*[\*\-•]\s*|\b)\*{0,2}(?:Patient(?:\s+Name)?|Pt\.?\s*Name|Name)[\s\*:]+([A-Za-z\s\.]+?)(?:\s*\*|\n|$)', text, re.IGNORECASE):
-        cand = m.group(1).strip()
-        if cand and not any(k in cand.lower() for k in ('dob', 'age', 'sex', 'date', 'dr', 'doctor', 'details', 'qualifications', 'information', 'header', 'clinic', 'hospital')):
+    for m in re.finditer(r'(?:^\s*[\*\-•]\s*|\b)\*{0,2}(?:Patient(?:\s+Name)?|Pt\.?\s*Name|Name)[\s\*\:\.\-]+([A-Za-z\s\.]+?)(?:\s*\*|\n|$)', text, re.IGNORECASE):
+        cand = m.group(1).strip().strip(".").strip()
+        if cand and len(cand) > 2 and not any(k in cand.lower() for k in ('dob', 'age', 'sex', 'date', 'dr', 'doctor', 'details', 'qualifications', 'information', 'header', 'clinic', 'hospital')):
             patient_name = cand
             break
 
-    age_match = re.search(r'(?:Age|Yrs?)[\s\*:]+([0-9\+]+(?:\s*Y(?:ears?)?)?)', text, re.IGNORECASE)
+    age_match = re.search(r'(?:Age|Yrs?)[\s\*\:\.\-]+([0-9\+]+(?:\s*Y(?:ears?)?)?)', text, re.IGNORECASE)
     if age_match:
         age = age_match.group(1).strip()
 
-    gender_match = re.search(r'(?:Sex|Gender)[\s\*:]+(Male|Female|Other|M|F)\b', text, re.IGNORECASE)
+    gender_match = re.search(r'(?:Sex|Gender)[\s\*\:\.\-]+(Male|Female|Other|M|F)\b', text, re.IGNORECASE)
     if gender_match:
         g = gender_match.group(1).upper()
         gender = "Male" if g in ("M", "MALE") else "Female" if g in ("F", "FEMALE") else "Other"
@@ -64,7 +64,7 @@ def parse_clinical_text(text: str) -> Dict[str, Any]:
 
     qual_matches = re.findall(r'\b(MBBS|M\.B\.B\.S|MD|M\.D|MS|M\.S|DM|D\.M|DNB|D\.N\.B|FCPS|MCh|PhD)\b', text, re.IGNORECASE)
     if qual_matches:
-        qualifications = list(set(q.upper() for q in qual_matches))
+        qualifications = list(set(q.upper().replace(".", "") for q in qual_matches))
 
     dept_match = re.search(r'\b(Cardiology|Endocrinology|General\s+Medicine|Internal\s+Medicine|Nephrology|Neurology|Pediatrics|Gynaecology|Gynecology|Orthopedics|Dermatology|Oncology|Gastroenterology)\b', text, re.IGNORECASE)
     if dept_match:
@@ -76,65 +76,64 @@ def parse_clinical_text(text: str) -> Dict[str, Any]:
 
     # 3. Vitals Extraction
     vitals = {}
-    bp_match = re.search(r'\*{0,2}(?:BP|Blood\s*Pressure)[:：]?\*{0,2}\s*[:：]?\s*(\d{2,3}\s*/\s*\d{2,3}(?:\s*mmHg)?)', text, re.IGNORECASE)
+    bp_match = re.search(r'\*{0,2}(?:BP|Blood\s*Pressure)[:：\-\s]*\*{0,2}\s*(\d{2,3}\s*/\s*\d{2,3}(?:\s*mmHg|\s*mm\s*Hg)?)', text, re.IGNORECASE)
     if bp_match:
         vitals["bloodPressure"] = bp_match.group(1).strip()
 
-    pr_match = re.search(r'\*{0,2}(?:PR|Pulse(?:\s*Rate)?|Heart\s*Rate|HR)[:：]?\*{0,2}\s*[:：]?\s*(\d{2,3}(?:\s*(?:/min|bpm|/minute))?)', text, re.IGNORECASE)
+    pr_match = re.search(r'\*{0,2}(?:PR|Pulse(?:\s*Rate)?|Heart\s*Rate|HR)[:：\-\s]*\*{0,2}\s*(\d{2,3}(?:\s*(?:/min|bpm|/minute))?)', text, re.IGNORECASE)
     if pr_match:
         vitals["pulseRate"] = pr_match.group(1).strip()
 
-    spo2_match = re.search(r'\*{0,2}(?:SPO2|SpO₂|SPO₂|Oxygen\s*Sat(?:uration)?)[:：]?\*{0,2}\s*[:：]?\s*(\d{2,3}\s*%(?:\s*R/?A)?)', text, re.IGNORECASE)
+    spo2_match = re.search(r'\*{0,2}(?:SPO2|SpO₂|SPO₂|Oxygen\s*Sat(?:uration)?)[:：\-\s]*\*{0,2}\s*(\d{2,3}\s*%(?:\s*R/?A)?)', text, re.IGNORECASE)
     if spo2_match:
         vitals["spo2"] = spo2_match.group(1).strip()
 
-    wt_match = re.search(r'\*{0,2}(?:WT|Weight)[:：]?\*{0,2}\s*[:：]?\s*(\d{2,3}(?:\.\d+)?\s*(?:kg|kgs|/kgs|\.k))', text, re.IGNORECASE)
+    wt_match = re.search(r'\*{0,2}(?:WT|Weight)[:：\-\s]*\*{0,2}\s*(\d{2,3}(?:\.\d+)?\s*(?:kg|kgs|/kgs|\.k))', text, re.IGNORECASE)
     if wt_match:
         vitals["weight"] = wt_match.group(1).strip()
 
     # 4. Comprehensive Medications Extraction
     medications: List[Dict[str, Any]] = []
 
-    # Pattern A: Standard Prescription lines (e.g. "Tab. Metformin 500mg 1-0-1 after meals")
+    # Pattern A: Numbered or standard prescription lines (e.g. "1. Glycolute (+) 3 daily" or "Tab. Metformin 500mg 1-0-1")
     med_line_pattern = re.compile(
-        r'(?:^|\n)(?:\d+[\.\)]|\*|\-)?\s*(?:Rx[:\s]*)?'
-        + COMMON_MED_PREFIXES +
-        r'?([A-Za-z0-9\s\-\+\(\)]+?)\s+(\d+(?:\.\d+)?\s*(?:mg|g|mcg|ml|IU|units)?)\s*(' + FREQUENCY_PATTERNS + r'|[0-1]-[0-1]-[0-1])?(?:\s+([^\n]+))?',
+        r'(?:^|\n)\s*(?:\d+[\.\)]|\*|\-)?\s*(?:Rx[:\s]*)?'
+        + r'(?:Tab\.?|Tablet|Cap\.?|Capsule|Syr\.?|Syrup|Inj\.?|Injection|Oint\.?|T\.?|C\.?|S\.?)?\s*'
+        + r'([A-Za-z0-9\s\-\+\(\)]+?)\s+'
+        + r'((?:\d+(?:\.\d+)?\s*(?:mg|g|mcg|ml|IU|units|tab)?\s*)?(?:' + FREQUENCY_PATTERNS + r'|\d-\d-\d|[a-zA-Z\/]+(?:\([^\)]+\))?))\b',
         re.IGNORECASE
     )
 
     for m in med_line_pattern.finditer(text):
         m_name = m.group(1).strip()
-        m_dose = m.group(2).strip() if m.group(2) else ""
-        m_freq = m.group(3).strip() if m.group(3) else "As prescribed"
-        m_instr = m.group(4).strip() if m.group(4) else "Take as directed by doctor"
+        m_dose = m.group(2).strip() if m.group(2) else "As prescribed"
 
-        if m_name and len(m_name) > 2 and not any(h in m_name.lower() for h in ("page", "date", "age", "phone", "dr", "doctor", "hospital", "patient", "investigation", "recommended", "test")):
+        if m_name and len(m_name) > 2 and not any(h in m_name.lower() for h in ("page", "date", "age", "phone", "dr", "doctor", "hospital", "patient", "investigation", "recommended", "test", "vitals", "complaints", "sweating", "hands", "foot", "profile", "view", "ecg", "cxr", "tsh", "ft3", "ft4", "cbc", "fbs", "rbs", "serum", "lipid")):
             if not any(med["name"].lower() == m_name.lower() for med in medications):
                 medications.append({
                     "name": m_name,
                     "dosage": m_dose,
-                    "frequency": m_freq,
-                    "instructions": m_instr,
+                    "frequency": m_dose,
+                    "instructions": "Take as directed by doctor",
                     "purpose": "Prescribed therapy"
                 })
 
-    # Pattern B: Markdown bullet lists or structured medication sections
-    rx_section_match = re.search(r'(?:###?\s*\*{0,2}Medications?[\s\S]*?)([\s\S]+?)(?:###?|\bRecommended|\bInvestigations|\bTests|\bFollow-up|\bFooter|\n---|---\n|$)', text, re.IGNORECASE)
+    # Pattern B: Medications block under header "Medications:" or "Rx:"
+    rx_section_match = re.search(r'(?:Medications?:?|Rx:?)([\s\S]+?)(?:Investigations?|Advised|Tests?|Follow-up|Date|Signature|\n\n\n|$)', text, re.IGNORECASE)
     if rx_section_match:
         rx_block = rx_section_match.group(1)
-        med_names = re.findall(r'^\s*(?:\d+[\.\)]|\*|\-)\s+(?:\*\*)?([^\n\*]+?)(?:\*\*)?\s*$', rx_block, re.MULTILINE)
-        dosages = re.findall(r'Dosage(?:\/Frequency)?[:：]?\*{0,2}\s*[:：]?\s*([^\n]+)', rx_block, re.IGNORECASE)
-        for idx, m_name in enumerate(med_names):
-            m_name = m_name.strip()
-            if m_name and len(m_name) > 2 and not any(h in m_name.lower() for h in ("recommended", "investigation", "tests", "clinical", "doctor", "header", "patient", "vitals", "symptoms", "follow-up", "footer")):
-                m_dose = dosages[idx].strip() if idx < len(dosages) else "As prescribed"
-                if not any(m["name"].lower() == m_name.lower() for m in medications):
+        lines = [l.strip() for l in rx_block.split("\n") if l.strip()]
+        for l in lines:
+            clean_l = re.sub(r'^\s*(?:\d+[\.\)]|\*|\-)\s*', '', l).strip()
+            if clean_l and len(clean_l) > 2 and not any(h in clean_l.lower() for h in ("investigation", "advised", "tests", "clinical", "doctor", "header", "patient", "vitals", "symptoms", "profile", "view", "ecg", "cxr", "tsh", "ft3", "ft4", "cbc", "fbs", "rbs", "serum", "lipid")):
+                parts = clean_l.split(maxsplit=1)
+                full_name = clean_l
+                if not any(m["name"].lower() in full_name.lower() or full_name.lower() in m["name"].lower() for m in medications):
                     medications.append({
-                        "name": m_name,
-                        "dosage": m_dose,
-                        "frequency": m_dose,
-                        "instructions": "As prescribed by doctor",
+                        "name": full_name,
+                        "dosage": "As prescribed",
+                        "frequency": "As directed",
+                        "instructions": "Take as directed by doctor",
                         "purpose": "Prescribed therapy"
                     })
 
@@ -142,7 +141,31 @@ def parse_clinical_text(text: str) -> Dict[str, Any]:
     lab_results: List[Dict[str, Any]] = []
     findings: List[Dict[str, Any]] = []
 
-    # Pattern A: Standard colon-separated lab values (e.g. "HbA1c: 6.4 % (4.0 - 5.6)")
+    # Pattern A: Advised / Ordered Investigations block (e.g. "Investigations Advised: CBC, S. Cr, Lipid profile, TSH, ECG")
+    advised_section = re.search(r'(?:Investigations?\s*Advised|Tests?\s*Advised|Advised\s*Tests?|Recommended\s*Tests?|Investigations?)[:\s]*([\s\S]+?)(?:Follow-up|Signature|Doctor|Date|\n\n\n|$)', text, re.IGNORECASE)
+    if advised_section:
+        block = advised_section.group(1)
+        raw_items = re.split(r'[\n,•\-\*]+', block)
+        for raw_t in raw_items:
+            t_clean = raw_t.strip().strip("-").strip()
+            if t_clean and len(t_clean) >= 2 and not any(k in t_clean.lower() for k in ("investigation", "advised", "doctor", "signature", "date", "page", "medication", "vitals")):
+                if not any(lr["test"].lower() == t_clean.lower() for lr in lab_results):
+                    lab_results.append({
+                        "test": t_clean,
+                        "value": "Advised",
+                        "unit": "",
+                        "reference": "Ordered by Doctor",
+                        "status": "ADVISED"
+                    })
+                    findings.append({
+                        "title": f"Advised Test: {t_clean}",
+                        "category": "Ordered Investigation",
+                        "severity": "MILD",
+                        "summary": f"Prescribed investigation: {t_clean}.",
+                        "actionItem": "Schedule test and review results with doctor."
+                    })
+
+    # Pattern B: Standard colon-separated lab values (e.g. "HbA1c: 6.4 % (4.0 - 5.6)")
     lab_pattern_colon = re.compile(
         r'(?:^|\n)(?:•|\*|\-|\d+[\.\)])?\s*\*{0,2}([A-Za-z0-9\s\-\/\(\)\+\,\.]+?)[:：]\s*(\d+(?:\.\d+)?)\s*([a-zA-Z\/\%\^\d\+\-\.]+)?(?:\s*\((?:Reference|Ref)[:\s]*([^\)]+)\))?(?:\s*\[(HIGH|LOW|NORMAL|ABNORMAL)\])?',
         re.IGNORECASE
@@ -154,7 +177,7 @@ def parse_clinical_text(text: str) -> Dict[str, Any]:
         t_ref = m.group(4).strip() if m.group(4) else "Standard reference"
         t_status = m.group(5).upper() if m.group(5) else "NORMAL"
 
-        if t_name and len(t_name) > 2 and not any(h in t_name.lower() for h in ("page", "date", "age", "phone", "mob", "mobile", "dr", "doctor", "hospital", "patient", "timing", "bp", "wt", "pr", "spo2", "sex", "name", "reg", "wbmc")):
+        if t_name and len(t_name) > 2 and not any(h in t_name.lower() for h in ("page", "date", "age", "phone", "mob", "mobile", "dr", "doctor", "hospital", "patient", "timing", "bp", "wt", "pr", "spo2", "sex", "name", "reg", "wbmc", "sweating", "hands", "foot")):
             if not any(lr["test"].lower() == t_name.lower() for lr in lab_results):
                 lab_results.append({
                     "test": t_name,
@@ -171,34 +194,10 @@ def parse_clinical_text(text: str) -> Dict[str, Any]:
                     "actionItem": "Review with attending physician."
                 })
 
-    # Pattern B: Space-separated lab test rows (e.g. "Fasting Blood Sugar  105  mg/dL  70-99")
-    lab_pattern_space = re.compile(
-        r'(?:^|\n)(?:•|\*|\-|\d+[\.\)])?\s*([A-Za-z0-9\s\-\/\(\)]+?)\s{2,}(\d+(?:\.\d+)?)\s*([a-zA-Z\/\%\^]+)?\s+([0-9\.\-\s\/]+)?',
-        re.IGNORECASE
-    )
-    for m in lab_pattern_space.finditer(text):
-        t_name = m.group(1).strip()
-        t_val = m.group(2).strip()
-        t_unit = m.group(3).strip() if m.group(3) else ""
-        t_ref = m.group(4).strip() if m.group(4) else "Standard reference"
-
-        if t_name and len(t_name) > 2 and not any(h in t_name.lower() for h in ("page", "date", "age", "phone", "dr", "doctor", "hospital", "patient", "bp", "wt", "pr", "spo2", "name")):
-            if not any(lr["test"].lower() == t_name.lower() for lr in lab_results):
-                lab_results.append({
-                    "test": t_name,
-                    "value": t_val,
-                    "unit": t_unit,
-                    "reference": t_ref,
-                    "status": "NORMAL"
-                })
-
-    doc_type = "OTHER"
-    if medications or "rx" in text.lower() or "prescription" in text.lower():
-        doc_type = "PRESCRIPTION"
-    elif lab_results or "lipid" in text.lower() or "pathology" in text.lower() or "laboratory" in text.lower():
-        doc_type = "LAB_REPORT"
-    elif "discharge" in text.lower():
-        doc_type = "DISCHARGE_SUMMARY"
+    doc_type = "PRESCRIPTION" if (medications or doctor_name or vitals or "prescription" in text.lower() or "rx" in text.lower()) else "OTHER"
+    if lab_results and not medications:
+        if any(lr.get("status") != "ADVISED" for lr in lab_results):
+            doc_type = "LAB_REPORT"
 
     return {
         "documentType": doc_type,

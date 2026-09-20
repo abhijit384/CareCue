@@ -10,6 +10,7 @@ import {
   Printer,
   Loader2,
   FileSearch,
+  RotateCcw,
 } from 'lucide-react';
 import { VerificationBadge } from '@/components/composed/VerificationBadge';
 import { LanguageSelector } from '@/components/composed/LanguageSelector';
@@ -33,6 +34,27 @@ export function DoctorBriefPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [userNotes, setUserNotes] = useState('');
+
+  // Dynamic progress loading state
+  const [briefLoadingIndex, setBriefLoadingIndex] = useState(0);
+
+  const briefLoadingMessages = [
+    "⚡ Loading patient records... please wait a moment.",
+    "🤖 Synthesizing evidence-grounded Doctor Visit Brief...",
+    "🧪 Cross-checking lab results, medications & vitals... just a few seconds more...",
+    "✨ Finalizing clinical summary & appointment preparation... almost ready!",
+  ];
+
+  useEffect(() => {
+    if (!generating) {
+      setBriefLoadingIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setBriefLoadingIndex(prev => (prev + 1) % briefLoadingMessages.length);
+    }, 2600);
+    return () => clearInterval(interval);
+  }, [generating, briefLoadingMessages.length]);
 
   // Multilingual translation state
   const [currentLang, setCurrentLang] = useState<Language>('en');
@@ -180,14 +202,22 @@ export function DoctorBriefPage() {
   if (generating) {
     return (
       <div className="max-w-3xl mx-auto px-5 sm:px-8 py-16 text-center">
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-accent-teal-light flex items-center justify-center mx-auto">
-            <Loader2 className="w-6 h-6 text-accent-teal animate-spin" />
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
+          <div className="relative w-14 h-14 mx-auto">
+            <Loader2 className="w-14 h-14 text-accent-teal animate-spin" />
+            <ClipboardList className="w-6 h-6 text-accent-teal-dark absolute top-4 left-4" />
           </div>
-          <h2 className="text-lg font-bold text-text-primary">Synthesizing Doctor Visit Brief</h2>
-          <p className="text-xs sm:text-sm text-text-secondary max-w-sm mx-auto leading-relaxed mb-6">
-            Grounded strictly in actual patient records and laboratory markers...
-          </p>
+          <div className="space-y-1.5 max-w-sm mx-auto">
+            <h2 className="text-sm sm:text-base font-extrabold text-text-primary transition-all duration-300">
+              {briefLoadingMessages[briefLoadingIndex]}
+            </h2>
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Grounded strictly in actual patient records, laboratory markers, and prescribed medications...
+            </p>
+          </div>
+          <div className="w-56 h-2 bg-bg-primary rounded-full overflow-hidden mx-auto shadow-inner">
+            <div className="h-full bg-gradient-to-r from-accent-teal via-emerald-500 to-amber-500 animate-pulse w-full rounded-full" />
+          </div>
           <div className="text-left mt-6">
             <SkeletonDoctorBrief />
           </div>
@@ -325,6 +355,15 @@ export function DoctorBriefPage() {
             onLanguageChange={handleLanguageChange}
             size="sm"
           />
+
+          <Button
+            variant="secondary"
+            onClick={handleGenerateBrief}
+            disabled={generating}
+            leftIcon={<RotateCcw className={cn("w-3.5 h-3.5 text-accent-teal", generating && "animate-spin")} />}
+          >
+            {generating ? 'Re-Synthesizing...' : 'Redo Doctor Brief'}
+          </Button>
 
           <Button
             variant="secondary"
@@ -486,11 +525,22 @@ export function DoctorBriefPage() {
           )}
         </div>
 
-        {/* 4. Patient Personal Notes */}
-        <div className="px-6 sm:px-8 py-5 border-b border-border-subtle bg-bg-secondary/20">
-          <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-tertiary mb-2">
-            Your Personal Questions & Symptoms (Optional)
-          </h2>
+        {/* 4. Patient Personal Notes & Re-synthesize Button */}
+        <div className="px-6 sm:px-8 py-5 border-b border-border-subtle bg-bg-secondary/20 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
+              Your Personal Questions & Symptoms (Optional)
+            </h2>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleGenerateBrief}
+              disabled={generating}
+              leftIcon={<RotateCcw className={cn("w-3.5 h-3.5", generating && "animate-spin")} />}
+            >
+              {generating ? 'Re-Synthesizing...' : 'Redo Doctor Brief'}
+            </Button>
+          </div>
           <textarea
             value={userNotes}
             onChange={e => setUserNotes(e.target.value)}

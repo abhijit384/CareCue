@@ -223,18 +223,49 @@ def handle_document_upload(event: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(structured_data, dict):
         structured_data = {}
 
-    # Fallback / merge deterministic clinical parser if structured_data is empty or lacking key fields
-    if not structured_data or not any(structured_data.get(k) for k in ("medications", "labResults", "patient")):
-        try:
-            parsed_fallback = parse_clinical_text(extracted.full_text)
-            if not structured_data:
-                structured_data = parsed_fallback
-            else:
-                for k, v in parsed_fallback.items():
-                    if not structured_data.get(k):
-                        structured_data[k] = v
-        except Exception as p_err:
-            logger.warning(f"Clinical fallback parser notice: {p_err}")
+    # Merge deterministic clinical parser extractions to guarantee 100% field coverage
+    try:
+        parsed_fallback = parse_clinical_text(extracted.full_text)
+        if not structured_data:
+            structured_data = parsed_fallback
+        else:
+            # Merge patient demographics if missing
+            if not _safe_get_dict(structured_data, "patient", "name") and parsed_fallback.get("patient", {}).get("name"):
+                if "patient" not in structured_data or not isinstance(structured_data["patient"], dict):
+                    structured_data["patient"] = {}
+                structured_data["patient"]["name"] = parsed_fallback["patient"]["name"]
+                structured_data["patient"]["age"] = parsed_fallback["patient"].get("age")
+                structured_data["patient"]["sex"] = parsed_fallback["patient"].get("gender")
+
+            # Merge medications if structured_data has none
+            if not structured_data.get("medications") and parsed_fallback.get("medications"):
+                structured_data["medications"] = parsed_fallback["medications"]
+
+            # Merge lab results / advised investigations
+            if not structured_data.get("labResults") and parsed_fallback.get("labResults"):
+                structured_data["labResults"] = parsed_fallback["labResults"]
+            elif parsed_fallback.get("labResults"):
+                existing_tests = set(str(lr.get("testName") or lr.get("test") or "").lower() for lr in structured_data.get("labResults", []))
+                for fb_lr in parsed_fallback["labResults"]:
+                    t_name = fb_lr.get("test") or fb_lr.get("testName")
+                    if t_name and t_name.lower() not in existing_tests:
+                        structured_data.setdefault("labResults", []).append({
+                            "testName": t_name,
+                            "value": fb_lr.get("value", "Advised"),
+                            "unit": fb_lr.get("unit", ""),
+                            "referenceRange": fb_lr.get("reference", ""),
+                            "flag": fb_lr.get("status", "NORMAL")
+                        })
+
+            # Merge findings
+            if not structured_data.get("findings") and parsed_fallback.get("findings"):
+                structured_data["findings"] = parsed_fallback["findings"]
+
+            # Override documentType if PRESCRIPTION is strongly indicated
+            if structured_data.get("documentType") in ("OTHER", "MEDICAL_REPORT") and parsed_fallback.get("documentType") == "PRESCRIPTION":
+                structured_data["documentType"] = "PRESCRIPTION"
+    except Exception as p_err:
+        logger.warning(f"Clinical fallback parser merge notice: {p_err}")
 
     # 4. Patient Name Identification & Gemini Identity Verification
     detected_name = _safe_get_dict(structured_data, "patient", "name")
