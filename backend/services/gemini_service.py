@@ -64,14 +64,45 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL_ID", "gemini-3.5-flash-lite")
-FALLBACK_GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.6-flash", "gemini-3.1-flash-lite"]
+DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL_ID", "gemini-3.5-flash")
+FALLBACK_GEMINI_MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
 MAX_REQUESTS_PER_SESSION = 15
 MAX_INPUT_CHAR_SIZE = 12000
 MAX_OUTPUT_TOKENS = 2500
 
 _CACHED_API_KEY: Optional[str] = None
 _AUDIT_LOG: List[Dict[str, Any]] = []
+
+def _fetch_secret_from_secrets_manager() -> Optional[str]:
+    """Safely retrieves the Gemini API key from AWS Secrets Manager."""
+    secret_name = os.environ.get("GEMINI_SECRET_NAME", "carecue/dev/gemini")
+    region_name = os.environ.get("AWS_REGION", "us-east-1")
+    try:
+        import boto3
+        sm_client = boto3.client("secretsmanager", region_name=region_name)
+        response = sm_client.get_secret_value(SecretId=secret_name)
+        secret_str = response.get("SecretString", "")
+        if not secret_str:
+            logger.warning(f"[SecretsManager] Secret '{secret_name}' SecretString is empty.")
+            return None
+        try:
+            secret_json = json.loads(secret_str)
+            if isinstance(secret_json, dict):
+                key = secret_json.get("GEMINI_API_KEY") or secret_json.get("gemini_api_key") or secret_json.get("apiKey")
+                if key:
+                    logger.info(f"[SecretsManager] Successfully loaded Gemini API key from '{secret_name}' (key length: {len(key)})")
+                    return key
+                else:
+                    logger.warning(f"[SecretsManager] Key GEMINI_API_KEY not found in secret JSON keys: {list(secret_json.keys())}")
+        except json.JSONDecodeError:
+            clean_str = secret_str.strip()
+            if clean_str:
+                logger.info(f"[SecretsManager] Successfully loaded raw Gemini key string from '{secret_name}' (length: {len(clean_str)})")
+                return clean_str
+        return None
+    except Exception as e:
+        logger.warning(f"[SecretsManager] Notice: Secrets Manager retrieval for '{secret_name}' ({region_name}): {e}")
+        return None
 
 # --- Pydantic Schemas for Strict Gemini JSON Output ---
 
@@ -183,7 +214,12 @@ class GeminiVerificationService:
             except Exception as e:
                 logger.debug(f"Could not read local-env.json: {e}")
 
-        # 3. AWS Secrets Manager is not used on localhost recovery path.
+        # 3. AWS Secrets Manager
+        sm_key = _fetch_secret_from_secrets_manager()
+        if sm_key and not sm_key.startswith("YOUR_"):
+            _CACHED_API_KEY = sm_key
+            return sm_key
+
         return None
 
     def is_available(self) -> bool:
@@ -205,7 +241,7 @@ class GeminiVerificationService:
             self._client = genai.Client(
                 api_key=api_key,
                 http_options=types.HttpOptions(
-                    timeout=20000,
+                    timeout=30000,
                     retry_options=types.HttpRetryOptions(attempts=1)
                 )
             )
@@ -220,7 +256,7 @@ class GeminiVerificationService:
         """
         client = self._get_genai_client()
         if not client:
-            raise RuntimeError("Gemini client unavailable. Check GEMINI_API_KEY configuration.")
+            raise RuntimeError("Gemini client unavailable. Check GEMINI_API_KEY or Secrets Manager configuration.")
 
         from google.genai import types
 

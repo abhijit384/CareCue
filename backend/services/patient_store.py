@@ -104,8 +104,11 @@ class PatientStore:
             if not p_id:
                 return
             now = datetime.now(timezone.utc).isoformat()
+            user_id = data.get("userId")
             with get_db_connection() as conn:
                 cursor = conn.cursor()
+                if user_id:
+                    ensure_user_exists(cursor, user_id, first_name=data.get("name", "Patient"))
                 cursor.execute("""
                 INSERT OR REPLACE INTO patients (
                     patient_id, user_id, name, date_of_birth, gender, phone, email,
@@ -115,7 +118,7 @@ class PatientStore:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """, (
                     p_id,
-                    data.get("userId"),
+                    user_id,
                     data.get("name", "Patient"),
                     data.get("dateOfBirth"),
                     data.get("gender"),
@@ -263,7 +266,18 @@ class PatientStore:
                 item = res.get("Item")
                 if item and item.get("entityType") == "patient":
                     self._restore_patient_from_dynamo(item)
-                    return self.get_patient(patient_id)
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                        SELECT p.*, COUNT(d.document_id) AS document_count
+                        FROM patients p
+                        LEFT JOIN documents d ON p.patient_id = d.patient_id
+                        WHERE p.patient_id = ?
+                        GROUP BY p.patient_id;
+                        """, (patient_id,))
+                        row = cursor.fetchone()
+                        if row:
+                            return self._row_to_patient_dict(row)
             except Exception as e:
                 logger.warning(f"DynamoDB get_patient error: {e}")
 

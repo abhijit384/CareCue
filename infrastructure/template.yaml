@@ -405,6 +405,12 @@ Resources:
             BucketName: !Ref CareCueDocumentsBucket
         - DynamoDBCrudPolicy:
             TableName: !Ref CareCueSessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GeminiSecretName}*"
       Events:
         UploadDocument:
           Type: HttpApi
@@ -551,6 +557,12 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref CareCueSessionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GeminiSecretName}*"
       Events:
         CompileBrief:
           Type: HttpApi
@@ -600,6 +612,13 @@ Resources:
       Handler: handlers.translation_handler.lambda_handler
       MemorySize: 512
       Timeout: 25
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GeminiSecretName}*"
       Events:
         TranslateText:
           Type: HttpApi
@@ -634,6 +653,13 @@ Resources:
       Handler: handlers.explain_handler.lambda_handler
       MemorySize: 512
       Timeout: 20
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GeminiSecretName}*"
       Events:
         ExplainFinding:
           Type: HttpApi

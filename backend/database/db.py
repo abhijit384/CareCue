@@ -25,14 +25,36 @@ try:
 except OSError:
     pass
 
-_db_initialized = False
+_SHARED_CONN: Optional[sqlite3.Connection] = None
+_db_initialized: bool = False
 
 def get_db_connection() -> sqlite3.Connection:
-    """Returns a SQLite connection with dict-like row access."""
-    global _db_initialized
-    conn = sqlite3.connect(DB_PATH)
+    """Returns a SQLite connection with dict-like row access, reusing connection when available."""
+    global _db_initialized, _SHARED_CONN
+    if _SHARED_CONN is not None:
+        try:
+            _SHARED_CONN.execute("SELECT 1;")
+            return _SHARED_CONN
+        except Exception:
+            try:
+                _SHARED_CONN.close()
+            except Exception:
+                pass
+            _SHARED_CONN = None
+
+    try:
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    except Exception:
+        pass
+    conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
+    try:
+        conn.execute("PRAGMA journal_mode = MEMORY;")
+        conn.execute("PRAGMA busy_timeout = 30000;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+    except Exception:
+        pass
+    _SHARED_CONN = conn
     if not _db_initialized:
         _db_initialized = True
         try:
