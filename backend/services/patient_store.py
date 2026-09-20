@@ -80,6 +80,8 @@ class DirectDynamoTable:
         items = res.get("Items", [])
         return {"Items": [{k: self._from_dynamo_val(v) for k, v in item.items()} for item in items]}
 
+_dynamo_table = None
+
 def get_dynamo_table():
     global _dynamo_table
     if _dynamo_table is None:
@@ -197,15 +199,17 @@ class PatientStore:
 
             with get_db_connection() as conn:
                 cursor = conn.cursor()
+                if not p_id:
+                    p_id = "PAT-DEMO01"
                 if user_id:
                     ensure_user_exists(cursor, user_id)
-                if p_id:
-                    cursor.execute("SELECT patient_id FROM patients WHERE patient_id = ?", (p_id,))
-                    if not cursor.fetchone():
-                        cursor.execute("""
-                        INSERT OR IGNORE INTO patients (patient_id, user_id, name, relationship, created_at, updated_at)
-                        VALUES (?, ?, 'Patient', 'Self', ?, ?);
-                        """, (p_id, user_id, now, now))
+                
+                cursor.execute("SELECT patient_id FROM patients WHERE patient_id = ?", (p_id,))
+                if not cursor.fetchone():
+                    cursor.execute("""
+                    INSERT OR IGNORE INTO patients (patient_id, user_id, name, relationship, created_at, updated_at)
+                    VALUES (?, ?, 'Patient', 'Self', ?, ?);
+                    """, (p_id, user_id, now, now))
 
                 cursor.execute("""
                 INSERT OR REPLACE INTO documents (
