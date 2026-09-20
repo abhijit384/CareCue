@@ -26,14 +26,24 @@ import os
 import boto3
 from typing import Dict, Any, Optional
 
-from backend.privacy.privacy_service import redact_for_cloud
-from backend.document.document_service import DocumentService
-from backend.services.bedrock_service import analyze_document_with_bedrock
-from backend.verification.comparison_service import DualAIVerificationEngine
-from backend.security.prompt_injection import sanitize_untrusted_document_content
-from backend.security.output_safety_filter import OutputSafetyFilter
-from backend.services.safety_engine import evaluate_safety_intent
-from backend.services.session_store import SessionStore
+try:
+    from backend.privacy.privacy_service import redact_for_cloud
+    from backend.document.document_service import DocumentService
+    from backend.services.bedrock_service import analyze_document_with_bedrock
+    from backend.verification.comparison_service import DualAIVerificationEngine
+    from backend.security.prompt_injection import sanitize_untrusted_document_content
+    from backend.security.output_safety_filter import OutputSafetyFilter
+    from backend.services.safety_engine import evaluate_safety_intent
+    from backend.services.session_store import SessionStore
+except ImportError:
+    from privacy.privacy_service import redact_for_cloud
+    from document.document_service import DocumentService
+    from services.bedrock_service import analyze_document_with_bedrock
+    from verification.comparison_service import DualAIVerificationEngine
+    from security.prompt_injection import sanitize_untrusted_document_content
+    from security.output_safety_filter import OutputSafetyFilter
+    from services.safety_engine import evaluate_safety_intent
+    from services.session_store import SessionStore
 
 CORS_HEADERS = {
     "Content-Type": "application/json",

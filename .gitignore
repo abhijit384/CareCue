@@ -11,6 +11,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!frontend/.env.production
+!frontend/.env.development
+!frontend/.env.example
 *.pem
 *.key
 credentials.json

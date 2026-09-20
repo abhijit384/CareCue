@@ -9,9 +9,14 @@ Endpoints:
 import json
 from typing import Dict, Any
 
-from backend.verification.comparison_service import DualAIVerificationEngine
-from backend.services.session_store import SessionStore
-from backend.security.output_safety_filter import OutputSafetyFilter
+try:
+    from backend.verification.comparison_service import DualAIVerificationEngine
+    from backend.services.session_store import SessionStore
+    from backend.security.output_safety_filter import OutputSafetyFilter
+except ImportError:
+    from verification.comparison_service import DualAIVerificationEngine
+    from services.session_store import SessionStore
+    from security.output_safety_filter import OutputSafetyFilter
 
 CORS_HEADERS = {
     "Content-Type": "application/json",

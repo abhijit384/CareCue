@@ -13,8 +13,12 @@ import json
 from typing import Dict, Any, List
 from datetime import datetime, timezone
 
-from backend.services.session_store import SessionStore
-from backend.services.safety_engine import evaluate_safety_intent
+try:
+    from backend.services.session_store import SessionStore
+    from backend.services.safety_engine import evaluate_safety_intent
+except ImportError:
+    from services.session_store import SessionStore
+    from services.safety_engine import evaluate_safety_intent
 
 CORS_HEADERS = {
     "Content-Type": "application/json",

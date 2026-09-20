@@ -124,8 +124,8 @@ Resources:
   SessionFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ../
-      Handler: backend.handlers.session_handler.lambda_handler
+      CodeUri: ../backend/
+      Handler: handlers.session_handler.lambda_handler
       MemorySize: 256
       Timeout: 10
       Policies:
@@ -161,8 +161,8 @@ Resources:
   UploadFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ../
-      Handler: backend.handlers.upload_handler.lambda_handler
+      CodeUri: ../backend/
+      Handler: handlers.upload_handler.lambda_handler
       MemorySize: 256
       Timeout: 10
       Policies:
@@ -182,8 +182,8 @@ Resources:
   ProcessFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ../
-      Handler: backend.handlers.process_handler.lambda_handler
+      CodeUri: ../backend/
+      Handler: handlers.process_handler.lambda_handler
       MemorySize: 1024
       Timeout: 60
       Policies:
@@ -222,8 +222,8 @@ Resources:
   VerificationFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ../
-      Handler: backend.handlers.verification_handler.lambda_handler
+      CodeUri: ../backend/
+      Handler: handlers.verification_handler.lambda_handler
       MemorySize: 512
       Timeout: 30
       Policies:
@@ -247,8 +247,8 @@ Resources:
   BriefFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ../
-      Handler: backend.handlers.brief_handler.lambda_handler
+      CodeUri: ../backend/
+      Handler: handlers.brief_handler.lambda_handler
       MemorySize: 512
       Timeout: 20
       Policies:
@@ -272,8 +272,8 @@ Resources:
   GuidanceFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ../
-      Handler: backend.handlers.guidance_handler.lambda_handler
+      CodeUri: ../backend/
+      Handler: handlers.guidance_handler.lambda_handler
       MemorySize: 512
       Timeout: 25
       Policies:

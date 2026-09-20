@@ -15,8 +15,12 @@ Endpoints:
 
 import json
 from typing import Dict, Any, Optional
-from backend.services.patient_store import PatientStore
-from backend.services.patient_service import PatientService
+try:
+    from backend.services.patient_store import PatientStore
+    from backend.services.patient_service import PatientService
+except ImportError:
+    from services.patient_store import PatientStore
+    from services.patient_service import PatientService
 
 CORS_HEADERS = {
     "Content-Type": "application/json",

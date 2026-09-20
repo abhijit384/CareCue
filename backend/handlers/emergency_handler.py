@@ -13,7 +13,10 @@ Endpoint:
 
 import json
 from typing import Dict, Any
-from backend.services.emergency_service import EmergencyService
+try:
+    from backend.services.emergency_service import EmergencyService
+except ImportError:
+    from services.emergency_service import EmergencyService
 
 CORS_HEADERS = {
     "Content-Type": "application/json",

@@ -2,7 +2,10 @@ import os
 import json
 import time
 from typing import Dict, Any
-from ..document.document_service import DocumentService
+try:
+    from backend.document.document_service import DocumentService
+except ImportError:
+    from document.document_service import DocumentService
 
 document_service = DocumentService()
 BUCKET_NAME = os.environ.get("DOCUMENTS_BUCKET_NAME", "carecue-documents")

@@ -13,7 +13,10 @@ Endpoint:
 
 import json
 from typing import Dict, Any
-from backend.services.translation_service import TranslationService, SUPPORTED_LANGUAGES
+try:
+    from backend.services.translation_service import TranslationService, SUPPORTED_LANGUAGES
+except ImportError:
+    from services.translation_service import TranslationService, SUPPORTED_LANGUAGES
 
 CORS_HEADERS = {
     "Content-Type": "application/json",

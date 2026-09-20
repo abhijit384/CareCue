@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "carecue.db"))
 DOCUMENTS_STORAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "documents"))
 
-os.makedirs(DOCUMENTS_STORAGE_DIR, exist_ok=True)
+try:
+    os.makedirs(DOCUMENTS_STORAGE_DIR, exist_ok=True)
+except OSError:
+    pass
 
 def get_db_connection() -> sqlite3.Connection:
     """Returns a SQLite connection with dict-like row access."""

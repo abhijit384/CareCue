@@ -1,7 +1,10 @@
 import json
 import time
 from typing import Dict, Any
-from ..services.session_store import SessionStore
+try:
+    from backend.services.session_store import SessionStore
+except ImportError:
+    from services.session_store import SessionStore
 
 session_store = SessionStore()
 
