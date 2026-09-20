@@ -813,9 +813,8 @@ Generate a JSON object conforming to:
         level: str = "standard"
     ) -> Dict[str, Any]:
         """Generates plain language educational explanation using Gemini. Non-diagnostic, non-prescriptive."""
-        client = self._get_genai_client()
-        if not client:
-            raise RuntimeError("Gemini client unavailable. Check GEMINI_API_KEY configuration.")
+        if not self.is_available():
+            raise RuntimeError("Gemini API key unavailable. Check GEMINI_API_KEY configuration.")
 
         prompt = f"""
 You are an empathetic, clear medical educator in CareCue.
@@ -905,15 +904,14 @@ Return a JSON object conforming to:
                 return capped_resp
             self._session_request_counts[session_id] = count + 1
 
-        client = self._get_genai_client()
-        if not client:
+        if not self.is_available():
             resp = GeminiVerificationResponse(
                 outcome=VerificationOutcome.SERVICE_UNAVAILABLE,
                 evidence_supported=False,
                 value_matches=False,
                 overstatement_detected=False,
                 uncertainty_required=False,
-                issues=["Gemini API client not configured or key missing."],
+                issues=["Gemini API key not configured or unavailable."],
                 reasoning_summary="Verification service temporarily unavailable.",
                 model_version=self.model_id,
             )
