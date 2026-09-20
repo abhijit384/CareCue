@@ -487,9 +487,9 @@ class GeminiVerificationService:
         Processes real extracted document text through Gemini to produce a structured clinical schema.
         Extracts patient identity, medications, lab values, findings, conditions, and exact evidence quotes.
         """
-        client = self._get_genai_client()
-        if not client:
-            raise RuntimeError("Gemini client unavailable. Check GEMINI_API_KEY configuration.")
+        if not self.is_available():
+            logger.warning("[GeminiService] API key not available, using clinical parser fallback.")
+            return parse_clinical_text(document_text)
 
         type_hint = f"Expected Document Type: {document_type}" if document_type else ""
 
@@ -644,9 +644,8 @@ Analyze whether the patient in this document matches the target patient name. Re
         if not text or target_language == "en":
             return text
 
-        client = self._get_genai_client()
-        if not client:
-            raise RuntimeError("Gemini client unavailable. Check GEMINI_API_KEY configuration.")
+        if not self.is_available():
+            raise RuntimeError("Gemini API key unavailable. Check GEMINI_API_KEY configuration.")
 
         lang_names = {
             "hi": "Hindi (हिन्दी)", "bn": "Bengali (বাংলা)", "or": "Odia (ଓଡ଼ିଆ)",
@@ -686,9 +685,8 @@ TEXT TO TRANSLATE:
     ) -> Dict[str, Any]:
         """Synthesizes a structured Doctor Visit Brief tailored to the patient's actual stored documents."""
         try:
-            client = self._get_genai_client()
-            if not client:
-                raise RuntimeError("Gemini client unavailable.")
+            if not self.is_available():
+                raise RuntimeError("Gemini API key unavailable.")
 
             docs_summary = []
             for d in documents:
