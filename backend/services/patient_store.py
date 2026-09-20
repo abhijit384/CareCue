@@ -20,14 +20,174 @@ except ImportError:
     except ImportError:
         from ..database.db import get_db_connection, seed_demo_patients, ensure_user_exists
 
+try:
+    from services.clinical_parser import parse_clinical_text
+except ImportError:
+    try:
+        from backend.services.clinical_parser import parse_clinical_text
+    except ImportError:
+        try:
+            from clinical_parser import parse_clinical_text
+        except ImportError:
+            def parse_clinical_text(text: str) -> Dict[str, Any]:
+                return {}
+
 logger = logging.getLogger(__name__)
 
+DEFAULT_TABLE_NAME = os.environ.get("SESSIONS_TABLE_NAME") or os.environ.get("DYNAMODB_TABLE_NAME", "carecue-sessions-dev")
+_dynamo_table = None
+
+def get_dynamo_table():
+    global _dynamo_table
+    if _dynamo_table is None:
+        try:
+            import boto3
+            region = os.environ.get("AWS_REGION", "us-east-1")
+            dynamodb = boto3.resource("dynamodb", region_name=region)
+            _dynamo_table = dynamodb.Table(DEFAULT_TABLE_NAME)
+        except Exception as e:
+            logger.warning(f"DynamoDB Table initialization notice: {e}")
+            return None
+    return _dynamo_table
+
+
 class PatientStore:
-    """Manages Patient profiles, attached documents, and clinical timelines in SQLite."""
+    """Manages Patient profiles, attached documents, and clinical timelines in SQLite + DynamoDB."""
 
     def __init__(self):
         self._patients = {}
         self._documents = {}
+
+    def _sync_patient_to_dynamo(self, patient: Dict[str, Any]):
+        table = get_dynamo_table()
+        if not table or not patient or not patient.get("patientId"):
+            return
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            item = {
+                "sessionId": patient["patientId"],
+                "entityType": "patient",
+                "patientId": patient["patientId"],
+                "userId": patient.get("userId") or "",
+                "name": patient.get("name") or "Patient",
+                "updatedAt": patient.get("updatedAt", now),
+                "dataJson": json.dumps(patient),
+                "ttl": int(time.time()) + (90 * 86400),
+            }
+            table.put_item(Item=item)
+        except Exception as e:
+            logger.warning(f"Failed to sync patient {patient.get('patientId')} to DynamoDB: {e}")
+
+    def _sync_document_to_dynamo(self, doc: Dict[str, Any]):
+        table = get_dynamo_table()
+        if not table or not doc or not doc.get("documentId"):
+            return
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            item = {
+                "sessionId": doc["documentId"],
+                "entityType": "document",
+                "documentId": doc["documentId"],
+                "patientId": doc.get("patientId") or "",
+                "updatedAt": doc.get("uploadedAt", now),
+                "dataJson": json.dumps(doc),
+                "ttl": int(time.time()) + (90 * 86400),
+            }
+            table.put_item(Item=item)
+        except Exception as e:
+            logger.warning(f"Failed to sync document {doc.get('documentId')} to DynamoDB: {e}")
+
+    def _restore_patient_from_dynamo(self, item: Dict[str, Any]):
+        try:
+            data = json.loads(item.get("dataJson", "{}")) if item.get("dataJson") else item
+            p_id = data.get("patientId") or item.get("patientId") or item.get("sessionId")
+            if not p_id:
+                return
+            now = datetime.now(timezone.utc).isoformat()
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                INSERT OR REPLACE INTO patients (
+                    patient_id, user_id, name, date_of_birth, gender, phone, email,
+                    blood_group, relationship, relationship_detail, is_demo,
+                    severe_allergies, current_medications,
+                    important_conditions, emergency_contact, notes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """, (
+                    p_id,
+                    data.get("userId"),
+                    data.get("name", "Patient"),
+                    data.get("dateOfBirth"),
+                    data.get("gender"),
+                    data.get("phone"),
+                    data.get("email"),
+                    data.get("bloodGroup"),
+                    data.get("relationship", "Self"),
+                    data.get("relationshipDetail"),
+                    1 if data.get("isDemo") else 0,
+                    json.dumps(data.get("severeAllergies", [])),
+                    json.dumps(data.get("currentMedications", [])),
+                    json.dumps(data.get("importantConditions", [])),
+                    json.dumps(data.get("emergencyContact")) if data.get("emergencyContact") else None,
+                    data.get("notes", ""),
+                    data.get("createdAt", now),
+                    data.get("updatedAt", now)
+                ))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Error restoring patient from DynamoDB: {e}")
+
+    def _restore_document_from_dynamo(self, item: Dict[str, Any]):
+        try:
+            data = json.loads(item.get("dataJson", "{}")) if item.get("dataJson") else item
+            doc_id = data.get("documentId") or item.get("documentId") or item.get("sessionId")
+            if not doc_id:
+                return
+            now = datetime.now(timezone.utc).isoformat()
+            pages_json = json.dumps(data.get("pages", [])) if isinstance(data.get("pages"), list) else data.get("pages_json", "[]")
+            structured_json = json.dumps(data.get("structuredData", {})) if isinstance(data.get("structuredData"), dict) else data.get("structured_data_json", "{}")
+            evidence_json = json.dumps(data.get("sourceEvidence", [])) if isinstance(data.get("sourceEvidence"), list) else data.get("source_evidence_json", "[]")
+
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                p_id = data.get("patientId")
+                if p_id:
+                    cursor.execute("SELECT patient_id FROM patients WHERE patient_id = ?", (p_id,))
+                    if not cursor.fetchone():
+                        cursor.execute("""
+                        INSERT OR IGNORE INTO patients (patient_id, name, relationship, created_at, updated_at)
+                        VALUES (?, 'Patient', 'Self', ?, ?);
+                        """, (p_id, now, now))
+
+                cursor.execute("""
+                INSERT OR REPLACE INTO documents (
+                    document_id, patient_id, original_file_name, display_name,
+                    document_type, mime_type, file_size_bytes, storage_path,
+                    extracted_text, extraction_method, pages_json,
+                    structured_data_json, source_evidence_json, processing_status,
+                    uploaded_at, analyzed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """, (
+                    doc_id,
+                    p_id,
+                    data.get("originalFileName", "Document.pdf"),
+                    data.get("displayName", "Document"),
+                    data.get("documentType", "OTHER"),
+                    data.get("mimeType", "application/pdf"),
+                    data.get("fileSizeBytes", 0),
+                    data.get("storagePath", ""),
+                    data.get("extractedText", ""),
+                    data.get("extractionMethod", "pymupdf"),
+                    pages_json,
+                    structured_json,
+                    evidence_json,
+                    data.get("processingStatus", "ANALYZED"),
+                    data.get("uploadedAt", now),
+                    data.get("analyzedAt", now)
+                ))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Error restoring document from DynamoDB: {e}")
 
     def _seed_demo_patients(self):
         with get_db_connection() as conn:
@@ -39,6 +199,20 @@ class PatientStore:
 
     def list_patients(self, search_query: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns patients belonging to user_id only (when provided), with attached document counts."""
+        # Sync all patient records from DynamoDB if present
+        table = get_dynamo_table()
+        if table:
+            try:
+                res = table.scan(
+                    FilterExpression="entityType = :etype",
+                    ExpressionAttributeValues={":etype": "patient"},
+                    Limit=100
+                )
+                for item in res.get("Items", []):
+                    self._restore_patient_from_dynamo(item)
+            except Exception as e:
+                logger.debug(f"DynamoDB scan patients notice: {e}")
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             conditions = []
@@ -67,7 +241,7 @@ class PatientStore:
             return [self._row_to_patient_dict(r) for r in rows]
 
     def get_patient(self, patient_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves a single patient profile by patientId."""
+        """Retrieves a single patient profile by patientId with DynamoDB fallback."""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -78,9 +252,22 @@ class PatientStore:
             GROUP BY p.patient_id;
             """, (patient_id,))
             row = cursor.fetchone()
-            if not row:
-                return None
-            return self._row_to_patient_dict(row)
+            if row:
+                return self._row_to_patient_dict(row)
+
+        # DynamoDB fallback
+        table = get_dynamo_table()
+        if table:
+            try:
+                res = table.get_item(Key={"sessionId": patient_id})
+                item = res.get("Item")
+                if item and item.get("entityType") == "patient":
+                    self._restore_patient_from_dynamo(item)
+                    return self.get_patient(patient_id)
+            except Exception as e:
+                logger.warning(f"DynamoDB get_patient error: {e}")
+
+        return None
 
     def create_patient(self, data: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
         """Creates a new permanent patient record with an immutable patientId."""
@@ -142,7 +329,10 @@ class PatientStore:
             ))
             conn.commit()
 
-        return self.get_patient(patient_id)
+        created = self.get_patient(patient_id)
+        if created:
+            self._sync_patient_to_dynamo(created)
+        return created
 
     def update_patient(self, patient_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Updates patient information."""
@@ -205,7 +395,7 @@ class PatientStore:
     # ─── Documents Management ───
 
     def save_document(self, doc: Dict[str, Any]) -> Dict[str, Any]:
-        """Saves or updates a document record in SQLite."""
+        """Saves or updates a document record in SQLite and DynamoDB."""
         doc_id = doc.get("documentId") or f"DOC-{int(time.time() * 1000)}"
         now = datetime.now(timezone.utc).isoformat()
 
@@ -248,7 +438,7 @@ class PatientStore:
                 analyzed_at = excluded.analyzed_at;
             """, (
                 doc_id,
-                doc.get("patientId"),
+                patient_id,
                 doc.get("originalFileName", "report.pdf"),
                 doc.get("displayName", "Medical Report"),
                 doc.get("documentType", "OTHER"),
@@ -266,20 +456,54 @@ class PatientStore:
             ))
             conn.commit()
 
-        return self.get_document(doc_id)
+        saved = self.get_document(doc_id)
+        if saved:
+            self._sync_document_to_dynamo(saved)
+        return saved or doc
 
     def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves a document by documentId."""
+        """Retrieves a document by documentId with DynamoDB fallback."""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM documents WHERE document_id = ?;", (document_id,))
             row = cursor.fetchone()
-            if not row:
-                return None
-            return self._row_to_document_dict(row)
+            if row:
+                return self._row_to_document_dict(row)
+
+        # DynamoDB fallback
+        table = get_dynamo_table()
+        if table:
+            try:
+                res = table.get_item(Key={"sessionId": document_id})
+                item = res.get("Item")
+                if item and item.get("entityType") == "document":
+                    self._restore_document_from_dynamo(item)
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT * FROM documents WHERE document_id = ?;", (document_id,))
+                        row = cursor.fetchone()
+                        if row:
+                            return self._row_to_document_dict(row)
+            except Exception as e:
+                logger.warning(f"DynamoDB get_document error: {e}")
+
+        return None
 
     def get_documents_by_patient(self, patient_id: str) -> List[Dict[str, Any]]:
-        """Strictly fetches documents attached to a specific patientId."""
+        """Strictly fetches documents attached to a specific patientId with DynamoDB sync."""
+        table = get_dynamo_table()
+        if table:
+            try:
+                res = table.scan(
+                    FilterExpression="patientId = :pid AND entityType = :etype",
+                    ExpressionAttributeValues={":pid": patient_id, ":etype": "document"},
+                    Limit=50
+                )
+                for item in res.get("Items", []):
+                    self._restore_document_from_dynamo(item)
+            except Exception as e:
+                logger.debug(f"DynamoDB scan patient docs notice: {e}")
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -325,26 +549,55 @@ class PatientStore:
         return self.save_document(doc)
 
     def attach_document_to_patient(self, document_id: str, patient_id: str) -> Optional[Dict[str, Any]]:
-        """Attaches an existing document to a patient, verifying patient existence."""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            now = datetime.now(timezone.utc).isoformat()
-            cursor.execute("SELECT patient_id FROM patients WHERE patient_id = ?", (patient_id,))
-            if not cursor.fetchone():
+        """Attaches an existing document to a patient, verifying existence across SQLite & DynamoDB."""
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Ensure patient exists
+        patient = self.get_patient(patient_id)
+        if not patient:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
                 cursor.execute("""
                 INSERT OR IGNORE INTO patients (patient_id, name, relationship, created_at, updated_at)
                 VALUES (?, 'Patient', 'Self', ?, ?);
                 """, (patient_id, now, now))
+                conn.commit()
 
-            cursor.execute("""
-            UPDATE documents SET patient_id = ? WHERE document_id = ?;
-            """, (patient_id, document_id))
+        # Ensure document exists
+        doc = self.get_document(document_id)
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT document_id FROM documents WHERE document_id = ?", (document_id,))
+            if not cursor.fetchone():
+                cursor.execute("""
+                INSERT OR IGNORE INTO documents (
+                    document_id, patient_id, original_file_name, display_name,
+                    document_type, mime_type, processing_status, uploaded_at, analyzed_at
+                ) VALUES (?, ?, ?, ?, 'OTHER', 'application/pdf', 'verified', ?, ?);
+                """, (
+                    document_id,
+                    patient_id,
+                    (doc.get("originalFileName") if doc else "Clinical_Document.pdf"),
+                    (doc.get("displayName") if doc else "Clinical Document"),
+                    now,
+                    now
+                ))
+            else:
+                cursor.execute("""
+                UPDATE documents SET patient_id = ? WHERE document_id = ?;
+                """, (patient_id, document_id))
+
             cursor.execute("""
             UPDATE patients SET updated_at = ? WHERE patient_id = ?;
             """, (now, patient_id))
             conn.commit()
 
-        return self.get_document(document_id)
+        updated_doc = self.get_document(document_id)
+        if updated_doc:
+            updated_doc["patientId"] = patient_id
+            self._sync_document_to_dynamo(updated_doc)
+        return updated_doc
 
     def delete_document(self, patient_id: str, document_id: str) -> bool:
         """Deletes a document under patient isolation rules."""
@@ -384,7 +637,6 @@ class PatientStore:
                 # Auto-parse from extracted text if structured data is empty
                 ext_text = d.get("extractedText", "")
                 if ext_text:
-                    from .clinical_parser import parse_clinical_text
                     s_data = parse_clinical_text(ext_text)
 
             # Lab Results
@@ -520,7 +772,6 @@ class PatientStore:
             if not s_data or (not s_data.get("medications") and not s_data.get("findings")):
                 ext_text = d.get("extractedText", "")
                 if ext_text:
-                    from .clinical_parser import parse_clinical_text
                     s_data = parse_clinical_text(ext_text)
 
             doc_meds = s_data.get("medications", [])
@@ -616,7 +867,6 @@ class PatientStore:
         structured = json.loads(d.get("structured_data_json") or "{}")
         extracted_txt = d.get("extracted_text", "")
         if (not structured or (not structured.get("medications") and not structured.get("labResults") and not structured.get("findings"))) and extracted_txt:
-            from .clinical_parser import parse_clinical_text
             parsed = parse_clinical_text(extracted_txt)
             if parsed.get("medications") or parsed.get("labResults") or parsed.get("findings"):
                 structured = parsed

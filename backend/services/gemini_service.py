@@ -31,6 +31,18 @@ except ImportError:
         return default
 
 try:
+    from services.clinical_parser import parse_clinical_text
+except ImportError:
+    try:
+        from backend.services.clinical_parser import parse_clinical_text
+    except ImportError:
+        try:
+            from clinical_parser import parse_clinical_text
+        except ImportError:
+            def parse_clinical_text(text: str) -> Dict[str, Any]:
+                return {}
+
+try:
     from verification.verification_types import (
         GeminiVerificationPayload,
         GeminiVerificationResponse,
@@ -488,7 +500,6 @@ Generate a JSON object conforming to:
                 for d in documents:
                     ext = (d.get("extractedText") or "").strip()
                     if ext:
-                        from .clinical_parser import parse_clinical_text
                         parsed = parse_clinical_text(ext)
                         for m in parsed.get("medications", []):
                             key_findings_list.append({

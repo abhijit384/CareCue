@@ -162,6 +162,9 @@ Resources:
       Handler: handlers.auth_handler.lambda_handler
       MemorySize: 512
       Timeout: 20
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CareCueSessionsTable
       Events:
         AuthSignup:
           Type: HttpApi
@@ -256,6 +259,9 @@ Resources:
       Handler: handlers.patient_handler.lambda_handler
       MemorySize: 512
       Timeout: 20
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CareCueSessionsTable
       Events:
         ListPatients:
           Type: HttpApi
