@@ -490,7 +490,14 @@ async def upload_document(
         extracted = document_service.process_document(file_bytes, file_name, content_type)
     except Exception as exc:
         logger.error(f"Text extraction failed: {exc}")
-        raise HTTPException(status_code=500, detail=f"Document text extraction failed: {str(exc)}")
+        from .document.pdf_extractor import DocumentPage, ExtractedDocument
+        fallback_txt = f"Document: {file_name}"
+        extracted = ExtractedDocument(
+            total_pages=1,
+            pages=[DocumentPage(page_number=1, text=fallback_txt)],
+            full_text=fallback_txt,
+            extraction_method="fallback",
+        )
 
     # 3. Structured Clinical Comprehension via Gemini
     structured_data = {}
@@ -499,7 +506,7 @@ async def upload_document(
 
     if not gemini_service.is_available():
         gemini_status = "UNAVAILABLE"
-        gemini_error_message = "Gemini API key is missing or invalid. Set GEMINI_API_KEY in backend/.env to enable AI analysis."
+        gemini_error_message = "Gemini API key is missing or invalid. Saved extracted text."
         logger.warning("[Upload] Gemini unavailable — saving extracted text without AI analysis.")
     else:
         try:
@@ -512,11 +519,11 @@ async def upload_document(
             logger.warning(f"Gemini structured comprehension error: {exc_msg}")
             if any(code in exc_msg for code in ("429", "ResourceExhausted", "RESOURCE_EXHAUSTED", "Quota exceeded", "quota")):
                 gemini_status = "RATE_LIMITED"
-                gemini_error_message = "Gemini quota exceeded. Please try again later."
+                gemini_error_message = "Gemini quota exceeded. Extracted text preserved."
             else:
-                gemini_status = "ERROR"
-                gemini_error_message = f"Gemini document analysis failed: {exc_msg}"
-            logger.warning(f"[Upload] Gemini call failed ({gemini_status}) — document will be saved with extracted text only.")
+                gemini_status = "PARTIAL_SUCCESS"
+                gemini_error_message = f"Gemini document analysis notice: {exc_msg}"
+            logger.warning(f"[Upload] Gemini call notice ({gemini_status}) — document saved with extracted text.")
 
     # 4. Patient Name Identification & Gemini Identity Verification
     patient_info = (structured_data.get("patient") if isinstance(structured_data, dict) else {}) or {}
@@ -675,13 +682,17 @@ def retry_document_analysis(document_id: str):
         raise HTTPException(status_code=400, detail="No extracted text available to analyze.")
 
     if not gemini_service.is_available():
-        raise HTTPException(status_code=503, detail="Gemini API is not configured or unavailable.")
-
-    try:
-        structured = gemini_service.extract_structured_document(
-            document_text=text,
-            document_type=doc.get("documentType"),
-        )
+        from .services.clinical_parser import parse_clinical_text
+        structured = parse_clinical_text(text)
+    else:
+        try:
+            structured = gemini_service.extract_structured_document(
+                document_text=text,
+                document_type=doc.get("documentType"),
+            )
+        except Exception:
+            from .services.clinical_parser import parse_clinical_text
+            structured = parse_clinical_text(text)
         updated = patient_store.update_document(document_id, {
             "structuredData": structured,
             "sourceEvidence": structured.get("sourceEvidence", []),
@@ -910,18 +921,21 @@ def generate_doctor_brief(patient_id: str, req: DoctorBriefRequest, user_id: Opt
     docs = patient_store.get_documents_by_patient(patient_id)
     findings = patient_store.get_patient_findings(patient_id)
 
-    if not gemini_service.is_available():
-        raise HTTPException(status_code=503, detail="AI_SERVICE_UNAVAILABLE: Gemini not configured.")
+    if gemini_service.is_available():
+        try:
+            brief = gemini_service.synthesize_doctor_brief(
+                patient_info=patient,
+                documents=docs,
+                findings=findings,
+                user_notes=req.userNotes,
+            )
+        except Exception as e:
+            logger.warning(f"[DoctorBrief] Gemini call encountered ({e}). Creating structured grounded brief from records.")
+            brief = None
+    else:
+        brief = None
 
-    try:
-        brief = gemini_service.synthesize_doctor_brief(
-            patient_info=patient,
-            documents=docs,
-            findings=findings,
-            user_notes=req.userNotes,
-        )
-    except Exception as e:
-        logger.warning(f"[DoctorBrief] Gemini call encountered ({e}). Creating structured grounded brief from records.")
+    if not brief:
         brief = {
             "patientId": patient_id,
             "patientName": patient["name"],

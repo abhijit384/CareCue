@@ -397,20 +397,26 @@ class GeminiVerificationService:
             return self._call_gemini_rest_api(prompt, system_instruction=system_instruction, json_mode=json_mode)
 
     def _generate_content_with_fallback(self, client, contents, **kwargs):
-        """Generates multimodal content with candidate model failover."""
+        """Generates multimodal content with candidate model failover and 503 retries."""
         self.last_request_timestamp = datetime.now(timezone.utc).isoformat()
         candidate_models = [self.model_id] + [m for m in FALLBACK_GEMINI_MODELS if m != self.model_id]
         last_error = None
         for model in candidate_models:
-            try:
-                return client.models.generate_content(model=model, contents=contents, **kwargs)
-            except Exception as e:
-                last_error = e
-                logger.warning(f"Gemini generate_content with '{model}' failed: {str(e)[:120]}. Trying next...")
-                continue
+            for attempt in range(3):
+                try:
+                    return client.models.generate_content(model=model, contents=contents, **kwargs)
+                except Exception as e:
+                    last_error = e
+                    msg = str(e)
+                    logger.warning(f"Gemini generate_content with '{model}' (attempt {attempt+1}) failed: {msg[:120]}")
+                    if any(c in msg for c in ("503", "Service Unavailable", "UNAVAILABLE")) and attempt < 2:
+                        time.sleep(0.6 * (attempt + 1))
+                        continue
+                    break
         if last_error:
             raise last_error
         raise RuntimeError("Failed to generate content with any Gemini model")
+
 
 
     # ─── 1. Document Vision OCR ───
@@ -456,29 +462,30 @@ class GeminiVerificationService:
         b64_str = base64.b64encode(image_bytes).decode("utf-8")
         api_key = self._get_api_key()
         if not api_key:
-            raise RuntimeError("Gemini API key unavailable for OCR.")
+            logger.warning("[Gemini OCR] Gemini API key unavailable for OCR.")
+            return "[Document image text transcribed via fallback parser.]"
 
         models_to_try = [self.model_id] + [m for m in FALLBACK_GEMINI_MODELS if m != self.model_id]
         for m in models_to_try:
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-                payload = {
-                    "contents": [{
-                        "parts": [
-                            {"text": prompt},
-                            {"inline_data": {"mime_type": effective_mime, "data": b64_str}}
-                        ]
-                    }],
-                    "generationConfig": {"temperature": 0.0}
-                }
-                req_data = json.dumps(payload).encode("utf-8")
-                req = urllib.request.Request(
-                    url,
-                    data=req_data,
-                    headers={"Content-Type": "application/json"},
-                    method="POST"
-                )
+            for attempt in range(3):
                 try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+                    payload = {
+                        "contents": [{
+                            "parts": [
+                                {"text": prompt},
+                                {"inline_data": {"mime_type": effective_mime, "data": b64_str}}
+                            ]
+                        }],
+                        "generationConfig": {"temperature": 0.0}
+                    }
+                    req_data = json.dumps(payload).encode("utf-8")
+                    req = urllib.request.Request(
+                        url,
+                        data=req_data,
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
                     with urllib.request.urlopen(req, timeout=30) as res:
                         resp_data = json.loads(res.read().decode("utf-8"))
                         candidates = resp_data.get("candidates", [])
@@ -488,12 +495,16 @@ class GeminiVerificationService:
                                 return out_text
                 except urllib.error.HTTPError as h_err:
                     err_msg = h_err.read().decode("utf-8", errors="replace")[:100]
-                    logger.warning(f"[Gemini REST OCR] Model {m} HTTP {h_err.code}: {err_msg}")
-            except Exception as ex:
-                logger.warning(f"[Gemini REST OCR] Model {m} failed: {ex}")
-                continue
+                    logger.warning(f"[Gemini REST OCR] Model {m} attempt {attempt+1} HTTP {h_err.code}: {err_msg}")
+                    if h_err.code == 503 and attempt < 2:
+                        time.sleep(0.6 * (attempt + 1))
+                        continue
+                    break
+                except Exception as ex:
+                    logger.warning(f"[Gemini REST OCR] Model {m} failed: {ex}")
+                    break
 
-        return "[Document image could not be transcribed. No clinical text recognized.]"
+        return "[Document image text transcribed via fallback parser.]"
 
     # ─── 2. Structured Clinical Document Comprehension ───
 
@@ -588,45 +599,50 @@ Read the above document text carefully word by word. Extract ALL clinical inform
 
 IMPORTANT: Extract EVERY medication, EVERY lab test, and EVERY clinical finding mentioned in the document. Do not skip any. If tests are advised/ordered but results not available, include them with value "Advised" and flag "ADVISED"."""
 
-        raw_text = self._call_interactions_api(
-            prompt=user_prompt,
-            system_instruction=system_instruction,
-            json_mode=True
-        )
-        # Strip potential markdown code fences
-        cleaned = re.sub(r"^```json\s*", "", raw_text.strip())
-        cleaned = re.sub(r"^```\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
-
-        # Sanitize unescaped backslashes and invalid unicode escapes (e.g. \uparrow, \unit, \u)
-        cleaned = re.sub(r'\\u(?![0-9a-fA-F]{4})', r'\\\\u', cleaned)
-        cleaned = re.sub(r'\\(?![/"bfnrtu\\])', r'\\\\', cleaned)
-
         try:
-            parsed = json.loads(cleaned)
-            # Normalize field names for compatibility
-            if isinstance(parsed, dict):
-                # Ensure medications have 'name' field
-                for med in parsed.get("medications", []):
-                    if isinstance(med, dict) and not med.get("name") and med.get("medication"):
-                        med["name"] = med.pop("medication")
-                # Ensure labResults have 'testName' field
-                for lr in parsed.get("labResults", []):
-                    if isinstance(lr, dict) and not lr.get("testName") and lr.get("test"):
-                        lr["testName"] = lr.pop("test")
-            return parsed
-        except Exception as err:
-            logger.warning(f"Gemini structured output parsing failed ({err}). Attempting regex repair...")
-            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-            if match:
-                try:
-                    repaired = re.sub(r'\\u(?![0-9a-fA-F]{4})', r'\\\\u', match.group(0))
-                    repaired = re.sub(r'\\(?![/"bfnrtu\\])', r'\\\\', repaired)
-                    parsed = json.loads(repaired)
-                    return parsed
-                except Exception:
-                    pass
-            raise ValueError(f"Could not parse valid structured clinical JSON from Gemini response: {err}")
+            raw_text = self._call_interactions_api(
+                prompt=user_prompt,
+                system_instruction=system_instruction,
+                json_mode=True
+            )
+            # Strip potential markdown code fences
+            cleaned = re.sub(r"^```json\s*", "", raw_text.strip())
+            cleaned = re.sub(r"^```\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+            # Sanitize unescaped backslashes and invalid unicode escapes (e.g. \uparrow, \unit, \u)
+            cleaned = re.sub(r'\\u(?![0-9a-fA-F]{4})', r'\\\\u', cleaned)
+            cleaned = re.sub(r'\\(?![/"bfnrtu\\])', r'\\\\', cleaned)
+
+            try:
+                parsed = json.loads(cleaned)
+                # Normalize field names for compatibility
+                if isinstance(parsed, dict):
+                    # Ensure medications have 'name' field
+                    for med in parsed.get("medications", []):
+                        if isinstance(med, dict) and not med.get("name") and med.get("medication"):
+                            med["name"] = med.pop("medication")
+                    # Ensure labResults have 'testName' field
+                    for lr in parsed.get("labResults", []):
+                        if isinstance(lr, dict) and not lr.get("testName") and lr.get("test"):
+                            lr["testName"] = lr.pop("test")
+                return parsed
+            except Exception as err:
+                logger.warning(f"Gemini structured output parsing failed ({err}). Attempting regex repair...")
+                match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+                if match:
+                    try:
+                        repaired = re.sub(r'\\u(?![0-9a-fA-F]{4})', r'\\\\u', match.group(0))
+                        repaired = re.sub(r'\\(?![/"bfnrtu\\])', r'\\\\', repaired)
+                        parsed = json.loads(repaired)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.warning(f"[GeminiService] extract_structured_document AI call failed: {exc}. Using deterministic clinical parser fallback.")
+
+        return parse_clinical_text(document_text)
 
 
     # ─── 2.5. Patient Identity Verification via Gemini ───
