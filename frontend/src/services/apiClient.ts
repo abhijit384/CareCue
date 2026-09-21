@@ -79,6 +79,13 @@ function messageForStatus(status: number): string {
 }
 
 function extractErrorMessage(body: unknown, status: number): { message: string; code?: string } {
+  const sanitize = (msg: string): string => {
+    if (msg.toLowerCase().includes('service unavailable') || msg.includes('503')) {
+      return 'The clinical analysis engine is temporarily busy. Your records are safe — please try again shortly.';
+    }
+    return msg;
+  };
+
   if (body && typeof body === 'object') {
     const record = body as Record<string, any>;
     const errorObj = record.error;
@@ -98,12 +105,12 @@ function extractErrorMessage(body: unknown, status: number): { message: string; 
       (typeof detail === 'object' && detail?.code) ||
       undefined;
     if (typeof message === 'string' && message.trim() && !looksLikeHtml(message)) {
-      return { message: message.trim(), code };
+      return { message: sanitize(message.trim()), code };
     }
     return { message: messageForStatus(status), code };
   }
   if (typeof body === 'string' && body.trim() && !looksLikeHtml(body)) {
-    return { message: body.trim().slice(0, 280) };
+    return { message: sanitize(body.trim().slice(0, 280)) };
   }
   return { message: messageForStatus(status) };
 }

@@ -109,10 +109,15 @@ export function PatientOnboardingModal() {
 
       setCreatedPatient(created);
       setActivePatient(created);
-      await refreshActivePatient(created.patientId);
+      try {
+        await refreshActivePatient(created.patientId);
+      } catch (e) {
+        console.warn('refreshActivePatient notice:', e);
+      }
       showToast(`Patient profile created for ${created.name}`, 'success');
 
       // Seamlessly advance to immediate document upload flow
+      setErrorBanner(null);
       setStep('upload');
     } catch (err: any) {
       setErrorBanner(err.message || 'Failed to create patient profile.');
