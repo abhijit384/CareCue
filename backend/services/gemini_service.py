@@ -296,49 +296,57 @@ class GeminiVerificationService:
         last_err = None
 
         for m in models_to_try:
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-                contents = []
-                if system_instruction:
-                    contents.append({"role": "user", "parts": [{"text": f"System Instruction: {system_instruction}"}]})
-                    contents.append({"role": "model", "parts": [{"text": "Understood. I will strictly follow these system instructions."}]})
-                
-                contents.append({"role": "user", "parts": [{"text": prompt}]})
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+            contents = []
+            if system_instruction:
+                contents.append({"role": "user", "parts": [{"text": f"System Instruction: {system_instruction}"}]})
+                contents.append({"role": "model", "parts": [{"text": "Understood. I will strictly follow these system instructions."}]})
+            
+            contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-                gen_config = {"temperature": 0.0}
-                if json_mode:
-                    gen_config["responseMimeType"] = "application/json"
+            gen_config = {"temperature": 0.0}
+            if json_mode:
+                gen_config["responseMimeType"] = "application/json"
 
-                payload = {
-                    "contents": contents,
-                    "generationConfig": gen_config
-                }
+            payload = {
+                "contents": contents,
+                "generationConfig": gen_config
+            }
 
-                import urllib.request
-                import urllib.error
-                req_data = json.dumps(payload).encode("utf-8")
-                req = urllib.request.Request(
-                    url,
-                    data=req_data,
-                    headers={"Content-Type": "application/json"},
-                    method="POST"
-                )
+            import urllib.request
+            import urllib.error
+
+            req_data = json.dumps(payload).encode("utf-8")
+            
+            # Retry up to 3 attempts per model for transient 503 Service Unavailable errors
+            for attempt in range(3):
                 try:
+                    req = urllib.request.Request(
+                        url,
+                        data=req_data,
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
                     with urllib.request.urlopen(req, timeout=25) as res:
                         resp_data = json.loads(res.read().decode("utf-8"))
                         candidates = resp_data.get("candidates", [])
                         if candidates and candidates[0].get("content", {}).get("parts"):
                             text_out = candidates[0]["content"]["parts"][0].get("text", "")
                             if text_out:
-                                logger.info(f"[Gemini REST] Successfully called model {m}")
+                                logger.info(f"[Gemini REST] Successfully called model {m} (attempt {attempt+1})")
                                 return text_out
                 except urllib.error.HTTPError as h_err:
                     err_msg = h_err.read().decode("utf-8", errors="replace")[:200]
-                    logger.warning(f"[Gemini REST] Model {m} returned HTTP {h_err.code}: {err_msg}")
+                    logger.warning(f"[Gemini REST] Model {m} attempt {attempt+1} returned HTTP {h_err.code}: {err_msg}")
                     last_err = f"HTTP {h_err.code}: {err_msg}"
-            except Exception as e:
-                logger.warning(f"[Gemini REST] Exception for model {m}: {e}")
-                last_err = str(e)
+                    if h_err.code == 503 and attempt < 2:
+                        time.sleep(0.6 * (attempt + 1))
+                        continue
+                    break
+                except Exception as e:
+                    logger.warning(f"[Gemini REST] Exception for model {m}: {e}")
+                    last_err = str(e)
+                    break
 
         raise RuntimeError(f"All Gemini REST models failed. Last error: {last_err}")
 
@@ -1295,8 +1303,61 @@ Analyze the question carefully. If it is NOT health or medical related, return t
 def _synthesize_fallback_medical_answer(question: str, doc_texts: List[str], patient_info: Dict[str, Any]) -> tuple[str, List[Dict[str, Any]], List[str]]:
     """Synthesizes rich, detailed clinical guidance for common health inquiries."""
     q_lower = question.lower()
+    is_action = any(k in q_lower for k in ["what to do", "how to lower", "how to manage", "high pp", "what should i do", "treatment", "reduce", "control", "steps", "action"])
 
-    if "bp" in q_lower or "blood pressure" in q_lower or "hypertension" in q_lower:
+    if ("sugar" in q_lower or "glucose" in q_lower or "pp" in q_lower or "post prandial" in q_lower) and (is_action or "pp" in q_lower or "high" in q_lower):
+        ans = (
+            "If your Post-Prandial (PP) blood sugar (measured 2 hours after a meal) is elevated (typically above 140–180 mg/dL), follow these key clinical steps:\n\n"
+            "1. Immediate Actions:\n"
+            "• Hydrate Well: Drink 2–3 glasses of water. Hydration helps your kidneys flush out excess glucose through urine.\n"
+            "• Light Physical Activity: Take a gentle 15–20 minute post-meal walk. Light muscle activity increases insulin-independent glucose uptake.\n"
+            "• Avoid Fast-Acting Carbs: Avoid fruit juices, carbonated sodas, sweets, refined flour, or heavy snacks.\n\n"
+            "2. Check Prescribed Medications:\n"
+            "• Verify if you took your prescribed diabetes medication (e.g., Metformin, Glycomet, or insulin) as directed by your doctor. Do NOT double your dose without medical consultation.\n\n"
+            "3. Reference Target Ranges:\n"
+            "• Non-Diabetic Normal PP: Under 140 mg/dL 2 hours after a meal.\n"
+            "• Diabetic Target PP (ADA Guidelines): Under 180 mg/dL.\n\n"
+            "4. Red Flags / When to Seek Immediate Medical Care:\n"
+            "• If blood sugar exceeds 250–300 mg/dL and is accompanied by nausea, vomiting, rapid deep breathing, extreme thirst, or confusion, seek emergency medical care immediately."
+        )
+        evidence = [
+            {
+                "claim": "Post-prandial blood sugar should target under 180 mg/dL for adults with diabetes (ADA guidelines). Hydration and light walking support glucose clearance.",
+                "source": "American Diabetes Association (ADA) Clinical Standards of Care",
+                "verification": {"status": "consistent", "reasoning": "Standard ADA guidelines for post-prandial glycemic management."}
+            }
+        ]
+        followups = [
+            "What foods help prevent post-meal sugar spikes?",
+            "What is the target range for fasting vs post-prandial blood sugar?",
+            "What questions should I ask my doctor about my diabetes medications?"
+        ]
+    elif ("bp" in q_lower or "blood pressure" in q_lower or "hypertension" in q_lower) and (is_action or "high" in q_lower):
+        ans = (
+            "If your blood pressure reading is high, here are recommended immediate steps:\n\n"
+            "1. Immediate Actions:\n"
+            "• Rest & Calm Down: Sit quietly in a cool, comfortable environment for 5–10 minutes with your feet flat on the floor.\n"
+            "• Deep Slow Breathing: Take slow, deep breaths (in for 4 seconds, hold for 4, out for 6). Deep breathing helps lower acute stress-induced BP spikes.\n"
+            "• Re-measure: Take another reading after 5 minutes of rest, ensuring your arm is resting at heart level.\n\n"
+            "2. Check Medication & Avoid Triggers:\n"
+            "• Confirm if you missed a daily prescribed blood pressure dose.\n"
+            "• Avoid caffeine, tobacco, alcohol, or salty snacks immediately after a high reading.\n\n"
+            "3. When to Seek Urgent Medical Help (Hypertensive Crisis):\n"
+            "• If your blood pressure reading is higher than 180/120 mmHg OR if you experience chest pain, shortness of breath, severe headache, vision changes, or numbness/weakness, seek emergency medical evaluation immediately."
+        )
+        evidence = [
+            {
+                "claim": "Blood pressure above 180/120 mmHg is classified as a Hypertensive Crisis requiring immediate medical evaluation.",
+                "source": "AHA / ACC Hypertension Guidelines",
+                "verification": {"status": "consistent", "reasoning": "Standard cardiovascular emergency protocols."}
+            }
+        ]
+        followups = [
+            "What lifestyle habits reduce blood pressure naturally?",
+            "How does sodium intake impact blood pressure?",
+            "When should I contact my primary care doctor about BP fluctuations?"
+        ]
+    elif "bp" in q_lower or "blood pressure" in q_lower or "hypertension" in q_lower:
         ans = (
             "Blood pressure (BP) is measured in millimeters of mercury (mmHg) and recorded as two numbers: "
             "systolic (top number, pressure during heartbeat) over diastolic (bottom number, pressure between beats).\n\n"
