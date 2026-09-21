@@ -20,7 +20,9 @@ import {
   CheckCircle2,
   Filter,
   Database,
+  Eye,
 } from 'lucide-react';
+import { DocumentPreviewModal } from '@/components/composed/DocumentPreviewModal';
 import { patientService, documentService, doctorBriefService } from '@/services';
 import type { Patient, PatientDocument, DocumentTimelineItem, DocumentType, PatientMatchResult, DoctorBrief } from '@/lib/types';
 import { DocumentTypeBadge } from '@/components/composed/DocumentTypeBadge';
@@ -81,6 +83,7 @@ export function Patients() {
   // Delete confirmation modals
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
   const [documentToDelete, setDocumentToDelete] = useState<{ documentId: string; displayName: string } | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<PatientDocument | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   // Modals
@@ -599,7 +602,16 @@ export function Patients() {
                           <div className="text-[11px] text-text-muted">{d.sourceReference} • {formatDate(d.createdAt)}</div>
                         </div>
                       </div>
-                      <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">✓ Verified</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewDocument(d)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-accent-teal/10 text-accent-teal hover:bg-accent-teal/20 transition-colors cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3 mr-0.5" /> Preview
+                        </button>
+                        <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">✓ Verified</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -636,6 +648,14 @@ export function Patients() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewDocument(d)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent-teal/10 text-accent-teal hover:bg-accent-teal/20 transition-colors cursor-pointer"
+                            title="Preview Document"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> Preview Document
+                          </button>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-accent-teal/10 text-accent-teal-dark uppercase">
                             {d.status}
                           </span>
@@ -1066,6 +1086,14 @@ export function Patients() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Document Preview Modal */}
+      <DocumentPreviewModal
+        isOpen={!!previewDocument}
+        onClose={() => setPreviewDocument(null)}
+        document={previewDocument}
+        patient={selectedPatient}
+      />
     </div>
   );
 }
