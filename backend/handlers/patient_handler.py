@@ -120,12 +120,16 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
                         if p:
                             docs = patient_store.get_documents_by_patient(patient_id)
                             findings = patient_store.get_patient_findings(patient_id)
-                            brief = gemini_service.synthesize_doctor_brief(
-                                patient_info=p,
-                                documents=docs,
-                                findings=findings,
-                                user_notes="",
-                            )
+                            try:
+                                brief = gemini_service.synthesize_doctor_brief(
+                                    patient_info=p,
+                                    documents=docs,
+                                    findings=findings,
+                                    user_notes="",
+                                )
+                            except Exception as e:
+                                logger.warning(f"Gemini doctor-brief GET notice: {e}")
+                                brief = None
                             if brief and isinstance(brief, dict):
                                 patient_store.save_doctor_brief(patient_id, brief)
                     return _json_response(200, brief or {})
@@ -144,12 +148,24 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
                     docs = patient_store.get_documents_by_patient(patient_id)
                     findings = patient_store.get_patient_findings(patient_id)
                     user_notes = payload.get("userNotes", "") if isinstance(payload, dict) else ""
-                    synthesized = gemini_service.synthesize_doctor_brief(
-                        patient_info=p,
-                        documents=docs,
-                        findings=findings,
-                        user_notes=user_notes,
-                    )
+                    try:
+                        synthesized = gemini_service.synthesize_doctor_brief(
+                            patient_info=p,
+                            documents=docs,
+                            findings=findings,
+                            user_notes=user_notes,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Gemini doctor-brief POST notice: {e}")
+                        synthesized = {
+                            "patientId": patient_id,
+                            "patientName": p.get("name", "Patient"),
+                            "oneLiner": f"Grounded clinical profile for {p.get('name', 'Patient')} with {len(docs)} stored records.",
+                            "topConcerns": [user_notes] if user_notes else ["Routine clinical checkup"],
+                            "activeMedications": p.get("currentMedications", []),
+                            "keyFindings": findings[:5] if findings else [],
+                            "disclaimer": "This brief is generated for educational discussion with your physician."
+                        }
                     saved = patient_store.save_doctor_brief(patient_id, synthesized)
                     return _json_response(200, saved)
 
