@@ -69,9 +69,6 @@ FALLBACK_GEMINI_MODELS = [
     "gemini-3.6-flash",
     "gemini-3.5-flash",
     "gemini-flash-latest",
-    "gemini-3.7-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-3.5-flash-lite",
 ]
 MAX_REQUESTS_PER_SESSION = 15
 MAX_INPUT_CHAR_SIZE = 20000
@@ -318,8 +315,8 @@ class GeminiVerificationService:
 
             req_data = json.dumps(payload).encode("utf-8")
             
-            # Retry up to 3 attempts per model for transient 503 Service Unavailable errors
-            for attempt in range(3):
+            # Quick 2 attempts with 0.2s backoff for fast non-blocking execution
+            for attempt in range(2):
                 try:
                     req = urllib.request.Request(
                         url,
@@ -327,7 +324,7 @@ class GeminiVerificationService:
                         headers={"Content-Type": "application/json"},
                         method="POST"
                     )
-                    with urllib.request.urlopen(req, timeout=25) as res:
+                    with urllib.request.urlopen(req, timeout=6) as res:
                         resp_data = json.loads(res.read().decode("utf-8"))
                         candidates = resp_data.get("candidates", [])
                         if candidates and candidates[0].get("content", {}).get("parts"):
@@ -339,8 +336,8 @@ class GeminiVerificationService:
                     err_msg = h_err.read().decode("utf-8", errors="replace")[:200]
                     logger.warning(f"[Gemini REST] Model {m} attempt {attempt+1} returned HTTP {h_err.code}: {err_msg}")
                     last_err = f"HTTP {h_err.code}: {err_msg}"
-                    if h_err.code == 503 and attempt < 2:
-                        time.sleep(0.6 * (attempt + 1))
+                    if h_err.code == 503 and attempt < 1:
+                        time.sleep(0.2)
                         continue
                     break
                 except Exception as e:
@@ -397,20 +394,20 @@ class GeminiVerificationService:
             return self._call_gemini_rest_api(prompt, system_instruction=system_instruction, json_mode=json_mode)
 
     def _generate_content_with_fallback(self, client, contents, **kwargs):
-        """Generates multimodal content with candidate model failover and 503 retries."""
+        """Generates multimodal content with candidate model failover and fast 503 retries."""
         self.last_request_timestamp = datetime.now(timezone.utc).isoformat()
         candidate_models = [self.model_id] + [m for m in FALLBACK_GEMINI_MODELS if m != self.model_id]
         last_error = None
         for model in candidate_models:
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
                     return client.models.generate_content(model=model, contents=contents, **kwargs)
                 except Exception as e:
                     last_error = e
                     msg = str(e)
                     logger.warning(f"Gemini generate_content with '{model}' (attempt {attempt+1}) failed: {msg[:120]}")
-                    if any(c in msg for c in ("503", "Service Unavailable", "UNAVAILABLE")) and attempt < 2:
-                        time.sleep(0.6 * (attempt + 1))
+                    if any(c in msg for c in ("503", "Service Unavailable", "UNAVAILABLE")) and attempt < 1:
+                        time.sleep(0.2)
                         continue
                     break
         if last_error:
