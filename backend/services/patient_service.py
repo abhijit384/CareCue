@@ -24,34 +24,41 @@ class PatientService:
         """
         Extracts patient name and date of birth using comprehensive heuristic patterns.
         """
+        if not document_text:
+            return {"patientName": None, "dateOfBirth": None, "confidence": 0.0, "sourcePage": 1, "isReliable": False}
+
         name = None
         dob = None
         confidence = 0.0
 
-        patterns = [
-            r'(?:patient\s*(?:name)?|pt\.?\s*name|name\s*of\s*patient|patient\'s\s*name)\s*[:\-]\s*([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,4})',
-            r'(?:prescribed\s*(?:to|for)|rx\s*for)\s*[:\-]?\s*([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,4})',
-            r'(?:patient|pt)\s*[:\-]\s*([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,4})',
-            r'(?:name)\s*[:\-]\s*([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,4})',
-            r'(?:mr|mrs|ms|shri|smt|master)\.?\s+([A-Za-z\.\'\-]+(?:[ \t]+[A-Za-z\.\'\-]+){1,3})',
+        name_patterns = [
+            r'(?:patient\s*(?:name)?|pt\.?\s*name|name\s*of\s*patient|patient\'s\s*name|prescribed\s*(?:for|to)|rx\s*for|name)\s*[:\-]\s*([^\n\r]+)',
+            r'(?:mr|mrs|ms|shri|smt|master|baby)\.?\s+([A-Za-z\.\'\-]+(?:\s+[A-Za-z\.\'\-]+){1,3})',
         ]
 
-        invalid_words = (
-            "report", "test", "laboratory", "specimen", "hospital", "clinic", "panel", "complete",
-            "blood", "chemistry", "order", "doctor", "dr", "physician", "pathology", "diagnostic",
-            "centre", "center", "page", "date", "findings", "summary", "rx", "tab", "cap", "inj"
+        stop_words = (
+            "age", "dob", "sex", "gender", "date", "dr", "doctor", "mrn", "id", "phone", "mobile",
+            "ref", "referred", "address", "yrs", "years", "male", "female", "weight", "height", "bp",
+            "report", "lab", "test", "clinic", "hospital", "department", "diag", "page", "summary"
         )
 
-        for pat in patterns:
-            match = re.search(pat, document_text, re.IGNORECASE)
-            if match:
-                candidate = match.group(1).split('\n')[0].strip()
-                # Clean candidate
-                candidate = re.sub(r'[,;\(\)\/\d].*$', '', candidate).strip()
-                if not any(w in candidate.lower() for w in invalid_words) and len(candidate) > 2:
-                    name = candidate
-                    confidence = 0.75
-                    break
+        for pat in name_patterns:
+            for match in re.finditer(pat, document_text, re.IGNORECASE):
+                raw_val = match.group(1).strip()
+                # Split by delimiters or field headers (Age, DOB, Sex, Date, etc.)
+                cleaned = re.split(r'\s*[\/\,\;\|\t\(\)]\s*|\s+(?=(?:Age|DOB|Sex|Gender|Date|Dr|Doctor|MRN|Ref|Phone|Mobile)\b[:\s\-\d])', raw_val, flags=re.IGNORECASE)[0]
+                cleaned = re.sub(r'^(?:Mr|Mrs|Ms|Miss|Shri|Smt|Master|Baby|Pt|Patient)\.?\s+', '', cleaned, flags=re.IGNORECASE).strip()
+                cleaned = re.sub(r'[\d\:\*\#\_\-\(\)]+$', '', cleaned).strip()
+                
+                words = [w for w in cleaned.split() if w.isalpha() or '.' in w]
+                if len(words) >= 1 and len(cleaned) >= 3:
+                    cand_lower = cleaned.lower()
+                    if not any(w in cand_lower for w in stop_words):
+                        name = cleaned.title()
+                        confidence = 0.85
+                        break
+            if name:
+                break
 
         dob_patterns = [
             r'(?:dob|date\s*of\s*birth|birth\s*date)\s*[:\-]\s*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}|\d{4}[/\-\.]\d{1,2}[/\-\.]\d{1,2})',
@@ -61,7 +68,7 @@ class PatientService:
             dob_match = re.search(d_pat, document_text, re.IGNORECASE)
             if dob_match:
                 dob = dob_match.group(1).strip()
-                confidence += 0.20
+                confidence += 0.10
                 break
 
         confidence = min(confidence, 0.98)

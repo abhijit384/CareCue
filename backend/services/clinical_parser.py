@@ -37,10 +37,13 @@ def parse_clinical_text(text: str) -> Dict[str, Any]:
     age = None
     gender = None
 
-    for m in re.finditer(r'(?:^\s*[\*\-•]\s*|\b)\*{0,2}(?:Patient(?:\s+Name)?|Pt\.?\s*Name|Name)[\s\*\:\.\-]+([A-Za-z\s\.]+?)(?:\s*\*|\n|$)', text, re.IGNORECASE):
-        cand = m.group(1).strip().strip(".").strip()
-        if cand and len(cand) > 2 and not any(k in cand.lower() for k in ('dob', 'age', 'sex', 'date', 'dr', 'doctor', 'details', 'qualifications', 'information', 'header', 'clinic', 'hospital')):
-            patient_name = cand
+    for m in re.finditer(r'(?:^\s*[\*\-•]\s*|\b)\*{0,2}(?:Patient(?:\s+Name)?|Pt\.?\s*Name|Name)[\s\*\:\.\-]+([^\n\r]+)', text, re.IGNORECASE):
+        raw_val = m.group(1).strip()
+        cleaned = re.split(r'\s*[\/\,\;\|\t\(\)]\s*|\s+(?=(?:Age|DOB|Sex|Gender|Date|Dr|Doctor|MRN|Ref|Phone|Mobile)\b[:\s\-\d])', raw_val, flags=re.IGNORECASE)[0]
+        cleaned = re.sub(r'^(?:Mr|Mrs|Ms|Miss|Shri|Smt|Master|Baby|Pt|Patient)\.?\s+', '', cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r'[\d\:\*\#\_\-\(\)]+$', '', cleaned).strip()
+        if cleaned and len(cleaned) >= 3 and not any(k in cleaned.lower() for k in ('dob', 'age', 'sex', 'date', 'dr', 'doctor', 'details', 'qualifications', 'information', 'header', 'clinic', 'hospital', 'report', 'lab', 'summary')):
+            patient_name = cleaned.title()
             break
 
     age_match = re.search(r'(?:Age|Yrs?)[\s\*\:\.\-]+([0-9\+]+(?:\s*Y(?:ears?)?)?)', text, re.IGNORECASE)

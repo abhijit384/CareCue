@@ -488,9 +488,13 @@ export function SessionFlow() {
         disclaimer: 'CareCue is an educational healthcare companion, not a diagnostic platform. Consult your physician.',
       });
 
-      if (result.matchResult && result.matchResult.matchType === 'DIFFERENT_PATIENT') {
+      const detectedName = result.detectedPatient?.name || result.structuredData?.patient?.name;
+      const isDifferent = result.matchResult?.matchType === 'DIFFERENT_PATIENT';
+      const isTargetMatch = result.matchResult?.isTargetMatch === true;
+
+      if (isDifferent) {
         setShowMismatchModal(true);
-      } else if (result.detectedPatient?.name && !selectedPatientId) {
+      } else if (detectedName && (!selectedPatientId || !isTargetMatch)) {
         setShowPatientModal(true);
       }
 
