@@ -172,11 +172,17 @@ export function Dashboard() {
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-accent-teal/15 text-accent-teal-dark flex items-center justify-center font-bold text-sm">
-              {effectiveActivePatient.name[0]?.toUpperCase() || 'P'}
+              {(effectiveActivePatient.name && effectiveActivePatient.name !== 'Patient' ? effectiveActivePatient.name : (user?.firstName || 'P'))[0]?.toUpperCase() || 'P'}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-text-primary">{effectiveActivePatient.name}</h3>
+                <h3 className="text-sm font-bold text-text-primary">
+                  {effectiveActivePatient.name && effectiveActivePatient.name !== 'Patient' && effectiveActivePatient.name !== 'User'
+                    ? effectiveActivePatient.name
+                    : ((effectiveActivePatient.relationship === 'Self' || !effectiveActivePatient.relationship) && user?.firstName
+                        ? `${user.firstName} ${user.lastName || ''}`.trim()
+                        : effectiveActivePatient.name || 'Patient')}
+                </h3>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-bg-secondary text-text-secondary border border-border-default">
                   {effectiveActivePatient.patientId || effectiveActivePatient.id}
                 </span>
@@ -202,11 +208,18 @@ export function Dashboard() {
                   aria-label="Switch Active Patient"
                   className="appearance-none pl-8 pr-7 py-1.5 rounded-lg bg-bg-secondary border border-border-default text-xs font-bold text-text-primary focus:outline-hidden focus:border-accent-teal cursor-pointer"
                 >
-                  {patients.map(p => (
-                    <option key={p.patientId} value={p.patientId}>
-                      {p.name} {p.relationship ? `(${p.relationship})` : ''}
-                    </option>
-                  ))}
+                  {patients.map(p => {
+                    const pName = p.name && p.name !== 'Patient' && p.name !== 'User'
+                      ? p.name
+                      : ((p.relationship === 'Self' || !p.relationship) && user?.firstName
+                          ? `${user.firstName} ${user.lastName || ''}`.trim()
+                          : p.name || 'Patient');
+                    return (
+                      <option key={p.patientId} value={p.patientId}>
+                        {pName} {p.relationship ? `(${p.relationship})` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
                 <Users className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <ChevronDown className="w-3.5 h-3.5 text-text-muted absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />

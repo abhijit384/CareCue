@@ -279,6 +279,23 @@ class PatientStore:
             if user_id:
                 conditions.append("(p.user_id = ?)")
                 params.append(user_id)
+                # Auto-heal any Self patient records that defaulted to generic 'Patient'
+                try:
+                    cursor.execute("SELECT first_name, last_name FROM users WHERE user_id = ?", (user_id,))
+                    u_row = cursor.fetchone()
+                    if u_row and u_row["first_name"]:
+                        u_name = f"{u_row['first_name']} {u_row['last_name'] or ''}".strip()
+                        if u_name and u_name != "User":
+                            cursor.execute("""
+                                UPDATE patients 
+                                SET name = ? 
+                                WHERE user_id = ? 
+                                AND (relationship = 'Self' OR relationship IS NULL) 
+                                AND (name = 'Patient' OR name = 'User' OR name = '' OR name IS NULL);
+                            """, (u_name, user_id))
+                            conn.commit()
+                except Exception as e:
+                    logger.debug(f"Patient name auto-heal notice: {e}")
             else:
                 conditions.append("(p.user_id IS NULL OR p.user_id = '' OR p.is_demo = 1)")
 

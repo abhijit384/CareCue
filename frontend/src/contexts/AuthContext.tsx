@@ -99,10 +99,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const rawList = await patientService.list();
-      const list = (rawList || []).map(p => ({
-        ...p,
-        id: p.patientId,
-      }));
+      const userFullName = storedUser?.firstName ? `${storedUser.firstName} ${storedUser.lastName || ''}`.trim() : null;
+
+      const list = (rawList || []).map(p => {
+        let displayName = p.name;
+        if ((!displayName || displayName === 'Patient' || displayName === 'User') && (p.relationship === 'Self' || !p.relationship) && userFullName) {
+          displayName = userFullName;
+        }
+        return {
+          ...p,
+          name: displayName || 'Patient',
+          id: p.patientId,
+        };
+      });
       setPatients([...list]);
 
       const targetId = preferredPatientId || localStorage.getItem(userScopeKey);

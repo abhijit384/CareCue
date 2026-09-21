@@ -77,6 +77,16 @@ export function AppShell() {
   const { t } = useLanguage();
   const { user, logout, openAuthModal, patients, activePatient, setActivePatient, openOnboarding, openLoadDemoModal } = useAuth();
   const effectiveActivePatient = activePatient || (patients.length > 0 ? patients[0] : null);
+
+  const formatPatientName = (p: Patient | null) => {
+    if (!p) return 'Patient';
+    if (p.name && p.name !== 'Patient' && p.name !== 'User') return p.name;
+    if ((p.relationship === 'Self' || !p.relationship) && user?.firstName) {
+      return `${user.firstName} ${user.lastName || ''}`.trim();
+    }
+    return p.name || 'Patient';
+  };
+
   const location = useLocation();
   const currentTitle = PAGE_TITLES[location.pathname] || 'CareCue';
 
@@ -202,7 +212,7 @@ export function AppShell() {
                   >
                     {patients.map((p: Patient) => (
                       <option key={p.patientId || p.id} value={p.patientId || p.id}>
-                        {p.name} ({p.relationship || 'Self'}{p.isDemo ? ' · DEMO' : ''})
+                        {formatPatientName(p)} ({p.relationship || 'Self'}{p.isDemo ? ' · DEMO' : ''})
                       </option>
                     ))}
                   </select>
@@ -539,7 +549,7 @@ export function AppShell() {
                   </div>
                   {effectiveActivePatient ? (
                     <div className="p-2 rounded-lg bg-bg-secondary text-xs font-semibold text-text-primary mb-2">
-                      {effectiveActivePatient.name} ({effectiveActivePatient.relationship || 'Self'})
+                      {formatPatientName(effectiveActivePatient)} ({effectiveActivePatient.relationship || 'Self'})
                     </div>
                   ) : (
                     <p className="text-xs text-text-tertiary mb-2">No patient loaded</p>
