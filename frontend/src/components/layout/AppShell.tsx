@@ -81,7 +81,7 @@ export function AppShell() {
   const formatPatientName = (p: Patient | null) => {
     if (!p) return 'Patient';
     if (p.name && p.name !== 'Patient' && p.name !== 'User') return p.name;
-    if ((p.relationship === 'Self' || !p.relationship) && user?.firstName) {
+    if (p.relationship === 'Self' && patients[0]?.patientId === p.patientId && user?.firstName) {
       return `${user.firstName} ${user.lastName || ''}`.trim();
     }
     return p.name || 'Patient';

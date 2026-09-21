@@ -101,14 +101,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const rawList = await patientService.list();
       const userFullName = storedUser?.firstName ? `${storedUser.firstName} ${storedUser.lastName || ''}`.trim() : null;
 
-      const list = (rawList || []).map(p => {
+      const list = (rawList || []).map((p, idx) => {
         let displayName = p.name;
-        if ((!displayName || displayName === 'Patient' || displayName === 'User') && (p.relationship === 'Self' || !p.relationship) && userFullName) {
+        if ((!displayName || displayName === 'Patient' || displayName === 'User') && p.relationship === 'Self' && idx === 0 && userFullName) {
           displayName = userFullName;
         }
         return {
           ...p,
-          name: displayName || 'Patient',
+          name: displayName || p.name || 'Patient',
           id: p.patientId,
         };
       });

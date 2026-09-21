@@ -279,23 +279,6 @@ class PatientStore:
             if user_id:
                 conditions.append("(p.user_id = ?)")
                 params.append(user_id)
-                # Auto-heal any Self patient records that defaulted to generic 'Patient'
-                try:
-                    cursor.execute("SELECT first_name, last_name FROM users WHERE user_id = ?", (user_id,))
-                    u_row = cursor.fetchone()
-                    if u_row and u_row["first_name"]:
-                        u_name = f"{u_row['first_name']} {u_row['last_name'] or ''}".strip()
-                        if u_name and u_name != "User":
-                            cursor.execute("""
-                                UPDATE patients 
-                                SET name = ? 
-                                WHERE user_id = ? 
-                                AND (relationship = 'Self' OR relationship IS NULL) 
-                                AND (name = 'Patient' OR name = 'User' OR name = '' OR name IS NULL);
-                            """, (u_name, user_id))
-                            conn.commit()
-                except Exception as e:
-                    logger.debug(f"Patient name auto-heal notice: {e}")
             else:
                 conditions.append("(p.user_id IS NULL OR p.user_id = '' OR p.is_demo = 1)")
 
@@ -748,19 +731,32 @@ class PatientStore:
         """Attaches an existing document to a patient, verifying existence across SQLite & DynamoDB."""
         now = datetime.now(timezone.utc).isoformat()
 
+        # Ensure document exists
+        doc = self.get_document(document_id)
+        doc_patient_name = None
+        if doc and isinstance(doc.get("structuredData"), dict):
+            p_info = doc["structuredData"].get("patient") or {}
+            if isinstance(p_info, dict) and p_info.get("name"):
+                doc_patient_name = str(p_info.get("name")).strip()
+
         # Ensure patient exists
         patient = self.get_patient(patient_id)
         if not patient:
+            initial_name = doc_patient_name or "Patient"
             with get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                 INSERT OR IGNORE INTO patients (patient_id, name, relationship, created_at, updated_at)
-                VALUES (?, 'Patient', 'Self', ?, ?);
-                """, (patient_id, now, now))
+                VALUES (?, ?, 'Self', ?, ?);
+                """, (patient_id, initial_name, now, now))
                 conn.commit()
-
-        # Ensure document exists
-        doc = self.get_document(document_id)
+        elif doc_patient_name and patient.get("name") in ["Patient", "User", "Unknown Patient", "", None]:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                UPDATE patients SET name = ?, updated_at = ? WHERE patient_id = ?;
+                """, (doc_patient_name, now, patient_id))
+                conn.commit()
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
