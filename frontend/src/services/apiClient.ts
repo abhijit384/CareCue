@@ -387,6 +387,16 @@ export const liveApi = {
     },
   },
 
+  guidance: {
+    async ask(question: string, patientId?: string): Promise<any> {
+      return request<any>('/guidance', {
+        method: 'POST',
+        timeoutMs: 120000,
+        body: JSON.stringify({ question, patientId }),
+      });
+    },
+  },
+
   translation: {
     async translateText(text: string, targetLanguage: string): Promise<any> {
       return request<any>('/translate', {

@@ -364,7 +364,22 @@ export const diagnosticsService = {
 };
 
 export const guidanceService = {
-  async query(question: string): Promise<GuidanceResponse> {
+  async query(question: string, patientId?: string): Promise<GuidanceResponse> {
+    try {
+      const res = await liveApi.guidance.ask(question, patientId);
+      if (res && res.answer) {
+        return {
+          answer: res.answer,
+          evidencePoints: res.evidencePoints || [],
+          relatedQuestions: res.suggestedFollowUps || res.relatedQuestions || [],
+          safetyNote: res.isSafetyRedirect ? res.answer : null,
+          disclaimer: res.disclaimer || 'CareCue provides AI-assisted educational information only, not medical diagnosis.',
+        };
+      }
+    } catch (err) {
+      console.warn('[guidanceService] Live API guidance call notice:', err);
+    }
+
     try {
       const explanation = await explainService.explain({
         findingTitle: question,

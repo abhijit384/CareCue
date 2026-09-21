@@ -943,6 +943,28 @@ def generate_doctor_brief(patient_id: str, req: DoctorBriefRequest, user_id: Opt
     patient_store.save_doctor_brief(patient_id, brief)
     return brief
 
+class GuidanceRequest(BaseModel):
+    question: str
+    patientId: Optional[str] = None
+    sessionId: Optional[str] = None
+
+@app.post("/api/guidance")
+@app.post("/guidance")
+def ask_care_guidance(req: GuidanceRequest):
+    """Care Guidance Q&A grounded in uploaded medical records with non-medical guardrail."""
+    patient_id = req.patientId or req.sessionId
+    patient = patient_store.get_patient(patient_id) if patient_id else None
+    documents = patient_store.get_documents_by_patient(patient_id) if patient_id else []
+    findings = patient_store.get_patient_findings(patient_id) if patient_id else []
+
+    res = gemini_service.answer_care_guidance(
+        question=req.question,
+        patient_info=patient or {},
+        documents=documents,
+        findings=findings
+    )
+    return res
+
 # ─── Clinical Explanation & Translation ───
 
 @app.post("/api/explain")

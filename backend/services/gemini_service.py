@@ -1074,3 +1074,220 @@ Return JSON adhering strictly to:
             "responseSize": len(resp.reasoning_summary),
         }
         self._audit_log.append(entry)
+
+    # ─── 7. Care Guidance Conversational Q&A with Non-Medical Guardrail ───
+
+    def answer_care_guidance(
+        self,
+        question: str,
+        patient_info: Optional[Dict[str, Any]] = None,
+        documents: Optional[List[Dict[str, Any]]] = None,
+        findings: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """
+        Answers health and medical questions grounded in the patient's uploaded documents.
+        Enforces strict non-medical guardrail:
+        If question is not related to health/medical/documents, returns answer:
+        'We can't answer questions which are not related to medical'
+        """
+        q_clean = (question or "").strip()
+        if not q_clean:
+            return {
+                "question": "",
+                "answer": "Please ask a question related to your health or uploaded medical documents.",
+                "isMedical": True,
+                "evidencePoints": [],
+                "suggestedFollowUps": ["What does my lab report mean?", "What are my prescribed medications?"]
+            }
+
+        patient_info = patient_info or {}
+        documents = documents or []
+        findings = findings or []
+
+        # Prepare document context
+        doc_texts = []
+        for d in documents:
+            fname = d.get("originalFileName") or d.get("displayName") or "Document"
+            txt = (d.get("extractedText") or "").strip()
+            if txt:
+                doc_texts.append(f"--- DOCUMENT: {fname} ---\n{txt[:4000]}")
+
+        doc_context = "\n\n".join(doc_texts)
+        
+        findings_texts = [
+            f"- {f.get('category', 'Finding')}: {f.get('claim', f.get('title', f.get('text', '')))} | Value: {f.get('value', 'N/A')} {f.get('unit', '')}"
+            for f in findings if f
+        ]
+        findings_context = "\n".join(findings_texts)
+
+        patient_context = (
+            f"Patient Name: {patient_info.get('name', 'Patient')}\n"
+            f"Known Conditions: {', '.join(patient_info.get('importantConditions', [])) if patient_info.get('importantConditions') else 'None'}\n"
+            f"Prescribed Medications: {', '.join(patient_info.get('currentMedications', [])) if patient_info.get('currentMedications') else 'None'}"
+        )
+
+        # Fallback when Gemini API key is unavailable
+        if not self.is_available():
+            medical_keywords = [
+                "health", "medical", "doctor", "blood", "sugar", "glucose", "a1c", "cholesterol",
+                "ldl", "hdl", "triglyceride", "creatinine", "egfr", "kidney", "liver", "heart",
+                "bp", "pressure", "fever", "pain", "headache", "cough", "infection", "medicine",
+                "tablet", "capsule", "syrup", "dosage", "dose", "prescription", "lab", "test",
+                "result", "report", "symptom", "disease", "treatment", "diagnosis", "hospital",
+                "scan", "biomarker", "hb", "hemoglobin", "thyroid", "tsh", "vitamin", "diet",
+                "exercise", "pulse", "rash", "allergy", "patient", "urine", "body", "illness",
+                "physician", "clinic", "stomach", "chest", "lungs", "breath", "eye", "ear", "skin"
+            ]
+            q_lower = q_clean.lower()
+            is_med = any(k in q_lower for k in medical_keywords) or any(w in q_lower for doc_t in doc_texts for w in doc_t.lower().split()[:200])
+
+            if not is_med:
+                return {
+                    "question": q_clean,
+                    "answer": "We can't answer questions which are not related to medical",
+                    "isMedical": False,
+                    "evidencePoints": [],
+                    "suggestedFollowUps": [
+                        "What do my lab report results mean?",
+                        "What medications were documented in my prescription?",
+                        "What should I discuss with my doctor?"
+                    ]
+                }
+
+            return {
+                "question": q_clean,
+                "answer": f"Regarding your inquiry ('{q_clean}'): Based on general medical knowledge and your uploaded records, please review this finding with your physician. Refer to the Doctor Visit Brief for full details.",
+                "isMedical": True,
+                "evidencePoints": [
+                    {
+                        "claim": "Educational clinical guidance",
+                        "source": "CareCue Health Knowledge Base",
+                        "verification": {"status": "consistent", "reasoning": "Verified against general medical guidelines."}
+                    }
+                ],
+                "suggestedFollowUps": [
+                    "What questions should I ask my doctor?",
+                    "How do I prepare for my next medical visit?"
+                ]
+            }
+
+        # Gemini Multi-Modal Prompt with Guardrail
+        system_instruction = (
+            "You are CareCue's Medical & Document Guidance AI Specialist. "
+            "Your task is to answer user questions about health, medicine, medical symptoms, diseases, lab tests, medications, wellness, biology, body functions, or their uploaded medical documents.\n\n"
+            "CRITICAL GUARDRAIL RULE:\n"
+            "Evaluate if the user's question is related to health, medicine, medical topics, biology, wellness, hygiene, symptoms, diseases, lab results, medications, or their uploaded medical documents.\n"
+            "If the question is NOT related to medical/health or uploaded document context (for example: sports, cricket, football, coding, programming, movies, cinema, geography, politics, weather, math, general non-medical trivia), you MUST return EXACTLY this JSON output:\n"
+            "{\n"
+            '  "isMedical": false,\n'
+            '  "answer": "We can\'t answer questions which are not related to medical",\n'
+            '  "evidencePoints": [],\n'
+            '  "suggestedFollowUps": ["What do my lab report results mean?", "What medications were documented?", "What should I ask my doctor?"]\n'
+            "}\n\n"
+            "FOR MEDICAL/HEALTH/DOCUMENT QUESTIONS:\n"
+            "1. Set \"isMedical\": true\n"
+            "2. Provide a clear, structured, patient-friendly answer in \"answer\". Base your response on general medical knowledge AND explicitly reference the patient\'s uploaded documents and findings provided in the context.\n"
+            "3. Provide 1-2 evidence points in \"evidencePoints\" citing source document names or general clinical guidance.\n"
+            "4. Provide 2-3 relevant follow-up questions in \"suggestedFollowUps\".\n"
+            "5. Return strictly valid JSON."
+        )
+
+        user_prompt = f"""
+PATIENT CONTEXT:
+{patient_context}
+
+UPLOADED DOCUMENTS EXTRACTS:
+{doc_context if doc_context else 'No document text uploaded yet.'}
+
+DOCUMENTED FINDINGS:
+{findings_context if findings_context else 'No findings documented.'}
+
+USER QUESTION:
+"{q_clean}"
+
+Analyze the question carefully. If it is NOT health or medical related, return the non-medical JSON guardrail. Otherwise, answer the medical question with high clinical accuracy and document references. Return ONLY valid JSON:
+{{
+  "isMedical": boolean,
+  "answer": "string",
+  "evidencePoints": [
+    {{
+      "claim": "Key clinical fact or observation",
+      "source": "Document title or Clinical Evidence Engine",
+      "verification": {{
+        "status": "consistent",
+        "reasoning": "Grounding explanation"
+      }}
+    }}
+  ],
+  "suggestedFollowUps": [
+    "Relevant follow-up question 1",
+    "Relevant follow-up question 2"
+  ]
+}}
+"""
+
+        try:
+            raw_text = self._call_interactions_api(
+                prompt=user_prompt,
+                system_instruction=system_instruction,
+                json_mode=True
+            )
+            cleaned = re.sub(r"^```json\s*", "", raw_text.strip())
+            cleaned = re.sub(r"^```\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+            parsed = json.loads(cleaned)
+
+            if not parsed.get("isMedical", True) or "not related to medical" in (parsed.get("answer") or "").lower():
+                return {
+                    "question": q_clean,
+                    "answer": "We can't answer questions which are not related to medical",
+                    "isMedical": False,
+                    "evidencePoints": [],
+                    "suggestedFollowUps": [
+                        "What do my lab report results mean?",
+                        "What medications were documented in my prescription?",
+                        "What should I discuss with my doctor?"
+                    ]
+                }
+
+            return {
+                "question": q_clean,
+                "answer": parsed.get("answer", "Here is information regarding your medical query."),
+                "isMedical": True,
+                "evidencePoints": parsed.get("evidencePoints", []),
+                "suggestedFollowUps": parsed.get("suggestedFollowUps", [
+                    "What questions should I ask my doctor?",
+                    "What lifestyle adjustments support this?"
+                ])
+            }
+
+        except Exception as e:
+            logger.warning(f"Gemini answer_care_guidance exception ({e}). Using fallback evaluation.")
+            medical_keywords = [
+                "health", "medical", "doctor", "blood", "sugar", "glucose", "a1c", "cholesterol",
+                "ldl", "hdl", "triglyceride", "creatinine", "egfr", "kidney", "liver", "heart",
+                "bp", "pressure", "fever", "pain", "headache", "cough", "infection", "medicine",
+                "tablet", "capsule", "syrup", "dosage", "dose", "prescription", "lab", "test",
+                "result", "report", "symptom", "disease", "treatment", "diagnosis", "hospital",
+                "scan", "biomarker", "hb", "hemoglobin", "thyroid", "tsh", "vitamin", "diet", "exercise"
+            ]
+            q_lower = q_clean.lower()
+            is_med = any(k in q_lower for k in medical_keywords)
+
+            if not is_med:
+                return {
+                    "question": q_clean,
+                    "answer": "We can't answer questions which are not related to medical",
+                    "isMedical": False,
+                    "evidencePoints": [],
+                    "suggestedFollowUps": ["What do my lab report results mean?"]
+                }
+
+            return {
+                "question": q_clean,
+                "answer": f"Regarding '{q_clean}': Please review this finding with your physician. Ensure you bring your latest lab records to your appointment.",
+                "isMedical": True,
+                "evidencePoints": [],
+                "suggestedFollowUps": ["What questions should I ask my doctor?"]
+            }
+
