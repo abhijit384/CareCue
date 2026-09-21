@@ -91,7 +91,29 @@ export const documentService = {
 
 export const patientService = {
   async list(): Promise<Patient[]> {
-    return liveApi.patients.list();
+    const cacheKey = 'carecue_patients_list_cache';
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Revalidate in background
+          liveApi.patients.list().then(fresh => {
+            if (fresh && Array.isArray(fresh)) {
+              try { sessionStorage.setItem(cacheKey, JSON.stringify(fresh)); } catch {}
+            }
+          }).catch(() => {});
+          return parsed;
+        }
+      }
+    } catch {}
+
+    const res = await liveApi.patients.list();
+    const list = Array.isArray(res) ? res : [];
+    if (list.length > 0) {
+      try { sessionStorage.setItem(cacheKey, JSON.stringify(list)); } catch {}
+    }
+    return list;
   },
 
   async get(patientId: string): Promise<Patient | undefined> {

@@ -64,8 +64,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL_ID", "gemini-3.5-flash-lite")
-FALLBACK_GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash"]
+DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL_ID", "gemini-2.5-flash")
+FALLBACK_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite"]
 MAX_REQUESTS_PER_SESSION = 15
 MAX_INPUT_CHAR_SIZE = 20000
 MAX_OUTPUT_TOKENS = 4096

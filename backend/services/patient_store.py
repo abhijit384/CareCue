@@ -269,8 +269,40 @@ class PatientStore:
         seed_demo_patients()
 
     def list_patients(self, search_query: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Returns patients belonging to user_id (and unassigned/demo patients), with attached document counts."""
-        # Sync all patient and document records from DynamoDB if present
+        """Fast instant patient listing from local database with background DynamoDB restore on cold starts."""
+        # 1. Fast local SQLite query
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            conditions = []
+            params = []
+
+            if user_id:
+                conditions.append("(p.user_id = ?)")
+                params.append(user_id)
+            else:
+                conditions.append("(p.user_id IS NULL OR p.user_id = '' OR p.is_demo = 1)")
+
+            if search_query:
+                conditions.append("(p.name LIKE ? OR p.patient_id LIKE ?)")
+                params.extend([f"%{search_query}%", f"%{search_query}%"])
+
+            where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+            cursor.execute(f"""
+            SELECT p.*, COUNT(d.document_id) AS document_count
+            FROM patients p
+            LEFT JOIN documents d ON p.patient_id = d.patient_id
+            {where_clause}
+            GROUP BY p.patient_id
+            ORDER BY p.updated_at DESC;
+            """, params)
+            rows = cursor.fetchall()
+            local_patients = [self._row_to_patient_dict(r) for r in rows]
+
+        # If local database has records, return immediately (1ms latency!)
+        if local_patients:
+            return local_patients
+
+        # 2. Fallback to DynamoDB scan ONLY if local SQLite database has no patients
         table = get_dynamo_table()
         if table:
             try:
@@ -293,6 +325,7 @@ class PatientStore:
             except Exception as e:
                 logger.debug(f"DynamoDB scan patients notice: {e}")
 
+        # 3. Re-query SQLite after sync
         with get_db_connection() as conn:
             cursor = conn.cursor()
             conditions = []
