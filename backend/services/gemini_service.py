@@ -64,11 +64,12 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL_ID", "gemini-3.6-flash")
+DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL_ID", "gemini-3.5-flash-lite")
 FALLBACK_GEMINI_MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-flash-lite-latest",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-flash-latest",
 ]
 MAX_REQUESTS_PER_SESSION = 15
 MAX_INPUT_CHAR_SIZE = 20000
@@ -280,8 +281,7 @@ class GeminiVerificationService:
             logger.info("[GeminiService] Google GenAI Client initialized successfully.")
             return self._client
         except Exception as exc:
-            import traceback
-            logger.error(f"Failed to instantiate Google GenAI Client: {exc}\n{traceback.format_exc()}")
+            logger.info(f"[GeminiService] SDK Client initialization notice ({exc}). Defaulting to direct REST API.")
             return None
 
     def _call_gemini_rest_api(self, prompt: str, system_instruction: Optional[str] = None, json_mode: bool = False) -> str:
@@ -294,21 +294,18 @@ class GeminiVerificationService:
 
         for m in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-            contents = []
-            if system_instruction:
-                contents.append({"role": "user", "parts": [{"text": f"System Instruction: {system_instruction}"}]})
-                contents.append({"role": "model", "parts": [{"text": "Understood. I will strictly follow these system instructions."}]})
-            
-            contents.append({"role": "user", "parts": [{"text": prompt}]})
-
             gen_config = {"temperature": 0.0}
             if json_mode:
                 gen_config["responseMimeType"] = "application/json"
 
             payload = {
-                "contents": contents,
+                "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": gen_config
             }
+            if system_instruction:
+                payload["systemInstruction"] = {
+                    "parts": [{"text": system_instruction}]
+                }
 
             import urllib.request
             import urllib.error
